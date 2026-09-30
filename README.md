@@ -52,7 +52,7 @@ Filosofi utama:
 
 ## 2. Arsitektur & Alur Lifecycle
 
-![Laras.io Architecture](/static/img/Laras%20Architecture.png "Laras.io Architecture")
+![Laras.io Architecture](/static/img/Laras%20Architecture.jpeg "Laras.io Architecture")
 
 - **Dua Wazuh Manager** dikonfigurasi terpisah: `dev` dan `prod`.
 - **Push manual** (`/api/wazuh/push`) **selalu ke Dev** dan bebas gate — dipakai untuk testing.
