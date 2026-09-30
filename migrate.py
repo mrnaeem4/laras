@@ -1,0 +1,2 @@
+from database import migrate_sync_fields_to_env_state
+migrate_sync_fields_to_env_state('prod')

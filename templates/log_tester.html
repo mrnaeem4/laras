@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block topbar_title %}Log Tester{% endblock %}
+
+{% block content %}
+<div id="tabTester">
+    <div class="page-head">
+        <h1>Live Log Tester</h1>
+        <p>Send a log to the Wazuh Manager <code>PUT /logtest</code> endpoint and inspect the Phase 1 (decoder), Phase 2 (rule), and Phase 3 (alert) results.</p>
+    </div>
+    <div class="panel mb-4"><div class="panel-body">
+        <div class="field-group">
+            <label class="form-label">Log Message <span class="text-danger">*</span></label>
+            <textarea class="form-control font-monospace" id="logMessage" rows="10" placeholder="Sep 08 11:25:52 myserver sshd[4543]: Failed password for admin from 192.168.1.10 port 22 ssh2"></textarea>
+        </div>
+        <button class="btn btn-primary" onclick="runLogtest()"><i class="fa-solid fa-play me-1"></i>Run Logtest</button>
+    </div></div>
+    <div class="panel"><div class="panel-body">
+        <h6 class="panel-title">Results</h6>
+        <div id="logtestResults">Results will appear here.</div>
+    </div></div>
+</div>
+{% endblock %}
+
+{% block page_js %}
+<script src="{{ url_for('static', filename='js/log_tester.js') }}"></script>
+{% endblock %}

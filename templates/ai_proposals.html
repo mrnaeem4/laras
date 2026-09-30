@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block topbar_title %}AI Proposals{% endblock %}
+
+{% block content %}
+<div id="tabAiProposals">
+    <div class="page-head">
+        <h1>AI Proposals</h1>
+        <p>Draft rules proposed by the AI from KEV advisories that match your Tech Stack. Nothing here is a live rule. Review a draft, open it in the Rule Builder, and save it yourself.</p>
+    </div>
+
+    <div class="panel">
+        <div class="panel-body">
+            <div class="table-toolbar">
+                <div class="form-group d-flex gap-2 align-items-center">
+                    <div class="search-wrap flex-grow-1">
+                        <i class="fa-solid fa-magnifying-glass"></i>
+                        <input type="text" id="apSearchInput" class="form-control search-input" placeholder="Search CVE, vendor, or product...">
+                    </div>
+                    <select id="apStatusFilter" class="form-select form-select-sm" style="max-width:160px">
+                        <option value="pending">Pending</option>
+                        <option value="">All statuses</option>
+                        <option value="dismissed">Dismissed</option>
+                    </select>
+                </div>
+                <button class="icon-btn" id="apGenerateBtn" title="Generate proposals now (one run)" onclick="generateAiProposals()">
+                    <i class="fa-solid fa-wand-magic-sparkles"></i>
+                </button>
+                <button class="icon-btn" title="Refresh" onclick="loadAiProposals()">
+                    <i class="fa-solid fa-rotate"></i>
+                </button>
+            </div>
+            <div class="table-toolbar pt-0">
+                <small class="text-muted" id="apMeta"></small>
+            </div>
+            <div style="overflow-x:auto;">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>CVE</th><th>Vendor / Product</th><th>Severity</th><th>Confidence</th><th>Rule ID</th><th>Status</th><th></th>
+                        </tr>
+                    </thead>
+                    <tbody id="aiProposalsTableBody"></tbody>
+                </table>
+            </div>
+            <div id="aiProposalsEmpty" class="empty-state d-none">
+                <i class="fa-solid fa-robot" style="font-size:40px; opacity:.5; margin-bottom:.7rem;"></i>
+                <h6>No AI proposals</h6>
+                <div>Register your Tech Stack, enable the AI job (or click the wand), and proposals will appear here.</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: proposal detail -->
+<div class="modal fade" id="aiProposalModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="aiProposalModalTitle">Proposal</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="aiProposalModalBody"></div>
+            <div class="modal-footer">
+                <button class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Close</button>
+                <button class="btn btn-outline-danger btn-sm" id="aiProposalDismissBtn" onclick="dismissCurrentProposal()">
+                    <i class="fa-solid fa-ban me-1"></i>Dismiss
+                </button>
+                <button class="btn btn-primary btn-sm" id="aiProposalOpenBtn" onclick="openCurrentProposalInBuilder()">
+                    <i class="fa-solid fa-pen-to-square me-1"></i>Open in Rule Builder
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block page_js %}
+<script src="{{ url_for('static', filename='js/ai_proposals.js') }}"></script>
+{% endblock %}

@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block topbar_title %}Saved Rules{% endblock %}
+
+{% block content %}
+{% include "partials/_view_xml_modal.html" %}
+<div id="tabRuleList">
+    <div class="page-head">
+        <h1>Saved Rules</h1>
+        <p>All rules stored in the <code>rules</code> MongoDB collection.</p>
+    </div>
+    <div class="panel">
+        <div class="panel-body">
+            <div class="table-toolbar">
+                <div class="form-group d-flex gap-2 align-items-center">
+                    <!-- Search column -->
+                    <div class="search-wrap flex-grow-1">
+                        <i class="fa-solid fa-magnifying-glass"></i>
+                        <input type="text" id="ruleSearchInput" class="form-control search-input" placeholder="Search ID, description, or group...">
+                    </div>
+
+                    <!-- Level checkboxes dropdown -->
+                    <div class="dropdown">
+                        <button class="btn btn-outline-secondary dropdown-toggle" type="button" id="dropdownMenuButton" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                            Select Level
+                        </button>
+                        <div class="dropdown-menu p-3" aria-labelledby="dropdownMenuButton" id="levelCheckboxContainer" style="max-height: 250px; overflow-y: auto; min-width: 180px;">
+                            <!-- Rendered by JavaScript -->
+                        </div>
+                    </div>
+
+                    <!-- Tech Stack filter: show only rules linked to a stack
+                         item (?tech_stack=<id> to /builder/rule/list). -->
+                    <select id="techStackFilter" class="form-select" style="min-width:180px; max-width:240px;">
+                        <option value="">All Tech Stack</option>
+                    </select>
+                </div>
+                <button class="icon-btn" title="Refresh" onclick="loadRuleTable()">
+                    <i class="fa-solid fa-rotate"></i>
+                </button>
+                <a class="btn btn-primary btn-sm ms-auto" href="/rule"><i class="fa-solid fa-plus me-1"></i>New Rule</a>
+            </div>
+            <div style="overflow-x:auto;">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>ID</th><th>Level</th><th>Filename</th><th class="wrap-col">Description</th><th class="wrap-col">Group</th><th>Tech Stack</th><th>Sync Status</th><th>Lifecycle</th><th>Updated</th><th></th>
+                        </tr>
+                    </thead>
+                    <tbody id="ruleTableBody"></tbody>
+                </table>
+            </div>
+            <div id="ruleTableEmpty" class="empty-state d-none">
+                <i class="fa-solid fa-shield-halved" style="font-size:40px; opacity:.5; margin-bottom:.7rem;"></i>
+                <h6>No rules yet</h6>
+                <div>Create your first rule in Rule Builder.</div>
+            </div>
+            <div class="pager" id="rulePager"></div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block page_js %}
+<script src="{{ url_for('static', filename='js/rule_list.js') }}"></script>
+{% endblock %}

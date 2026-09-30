@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block topbar_title %}PCRE2 Tester{% endblock %}
+
+{% block content %}
+<div id="tabPCRE2">
+    <div class="page-head">
+        <h1>PCRE2 Pattern Tester</h1>
+        <p>Test regex/PCRE2 patterns locally without a connection to the Wazuh Manager.</p>
+    </div>
+    <div class="row g-4">
+        <div class="col-lg-6">
+            <div class="panel"><div class="panel-body">
+                <h5 class="panel-title">Pattern</h5>
+                <div class="field-group">
+                    <label class="form-label">PCRE2 Pattern</label>
+                    <input type="text" id="pcre2Pattern" class="form-control font-monospace" placeholder='e.g. (?P&lt;srcip&gt;\d{1,3}(?:\.\d{1,3}){3})'>
+                </div>
+                <div class="field-group">
+                    <label class="form-label">Log String</label>
+                    <textarea id="pcre2Log" class="form-control font-monospace" rows="3" placeholder="e.g. Failed password from 192.168.1.10 port 22"></textarea>
+                </div>
+                <div class="d-flex gap-2">
+                    <button class="btn btn-primary" onclick="testPCRE2()"><i class="fa-solid fa-vial me-1"></i>Test Pattern</button>
+                    <button class="btn btn-outline-secondary" onclick="validateOnly()">Validate Only</button>
+                </div>
+            </div></div>
+        </div>
+        <div class="col-lg-6">
+            <div class="panel h-100"><div class="panel-body">
+                <h5 class="panel-title">Results</h5>
+                <div id="pcre2Results">Results will appear here.</div>
+            </div></div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block page_js %}
+<script src="{{ url_for('static', filename='js/pcre2_tester.js') }}"></script>
+{% endblock %}

@@ -1,0 +1,7 @@
+.env
+Wazuh Configuration/*
+*.pyc
+index.html
+dynamic_forms.js
+*.code-workspace
+AI_INSTRUCTION.md

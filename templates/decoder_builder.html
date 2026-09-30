@@ -1,0 +1,199 @@
+{% extends "base.html" %}
+{% block topbar_title %}Decoder Builder{% endblock %}
+
+{% block content %}
+<div id="tabDecoder">
+    <div class="page-head">
+        <h1>Decoder Builder</h1>
+        <p>Build a Wazuh <code>&lt;decoder&gt;</code> step by step from identity, pattern matching, and extracted field data.</p>
+    </div>
+
+    <div class="row g-4">
+        <div class="col-lg-7">
+            <div class="panel">
+                <div class="panel-body">
+                    <ol class="wizard-track" id="decWizardTrack">
+                        <li class="active" data-goto="1"><div class="step-dot">1</div><div class="step-label">Identity</div></li>
+                        <li data-goto="2"><div class="step-dot">2</div><div class="step-label">Matching</div></li>
+                        <li data-goto="3"><div class="step-dot">3</div><div class="step-label">Extraction</div></li>
+                        <li data-goto="4"><div class="step-dot">4</div><div class="step-label">Review</div></li>
+                    </ol>
+
+                    <!-- STEP 1 — Identity -->
+                    <div class="wizard-pane active" data-step="1">
+                        <div class="field-group">
+                            <label class="form-label">Name <span class="text-danger">*</span></label>
+                            <input type="text" id="dec_name" class="form-control" placeholder="e.g. my_custom_decoder">
+                            <div class="field-hint">Decoder name. Required.</div>
+                        </div>
+                        <div class="field-group">
+                            <label class="form-label">Parent <small class="text-muted">(optional)</small></label>
+                            <select id="dec_parent" class="form-select">
+                                <option value="">-- none (root decoder) --</option>
+                            </select>
+                            <div class="field-hint">Autocomplete from saved decoder in MongoDB.</div>
+                        </div>
+                        <div class="field-group">
+                            <label class="form-label">Type</label>
+                            <select id="dec_type" class="form-select">
+                                <option value="">-- default (syslog) --</option>
+                                <option value="syslog">syslog</option>
+                                <option value="firewall">firewall</option>
+                                <option value="ids">ids</option>
+                                <option value="web-log">web-log</option>
+                                <option value="squid">squid</option>
+                                <option value="windows">windows</option>
+                                <option value="host-information">host-information</option>
+                                <option value="ossec">ossec</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- STEP 2 — Matching -->
+                    <div class="wizard-pane" data-step="2">
+                        <div class="field-group">
+                            <label class="form-label">program_name</label>
+                            <div class="input-group">
+                                <input type="text" id="dec_program_name" class="form-control" placeholder="e.g. sshd">
+                                <select id="dec_program_name_type" class="form-select" style="max-width:130px">
+                                    <option value="">osmatch</option>
+                                    <option value="osregex">osregex</option>
+                                    <option value="pcre2">pcre2</option>
+                                    <option value="osmatch">osmatch</option>
+                                </select>
+                            </div>
+                            <div class="field-hint">Decoder scope for specific program.</div>
+                        </div>
+
+                        <div class="field-group">
+                            <label class="form-label">prematch</label>
+                            <textarea id="dec_prematch" class="form-control font-monospace" rows="2" placeholder="e.g. ^\w+ \w+ sshd"></textarea>
+                            <div class="row mt-2 g-2">
+                                <div class="col-auto">
+                                    <select id="dec_prematch_type" class="form-select form-select-sm">
+                                        <option value="">osregex (default)</option>
+                                        <option value="osregex">osregex</option>
+                                        <option value="pcre2">pcre2</option>
+                                    </select>
+                                </div>
+                                <div class="col-auto">
+                                    <select id="dec_prematch_offset" class="form-select form-select-sm">
+                                        <option value="">no offset</option>
+                                        <option value="after_regex">after_regex</option>
+                                        <option value="after_parent">after_parent</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="field-group">
+                            <label class="form-label">regex</label>
+                            <textarea id="dec_regex" class="form-control font-monospace" rows="2" placeholder="e.g. (\S+) (\S+)"></textarea>
+                            <div class="row mt-2 g-2">
+                                <div class="col-auto">
+                                    <select id="dec_regex_type" class="form-select form-select-sm">
+                                        <option value="">osregex (default)</option>
+                                        <option value="osregex">osregex</option>
+                                        <option value="pcre2">pcre2</option>
+                                    </select>
+                                </div>
+                                <div class="col-auto">
+                                    <select id="dec_regex_offset" class="form-select form-select-sm">
+                                        <option value="">no offset</option>
+                                        <option value="after_prematch">after_prematch</option>
+                                        <option value="after_regex">after_regex</option>
+                                        <option value="after_parent">after_parent</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- STEP 3 — Extraction -->
+                    <div class="wizard-pane" data-step="3">
+                        <div class="field-group">
+                            <label class="form-label">order</label>
+                            <input type="text" id="dec_order" class="form-control font-monospace" placeholder="e.g. srcuser, srcip, status">
+                            <div class="field-hint">Comma-separated, Based on group sequence in regex. Required if regex filled.</div>
+                        </div>
+                        <div class="row g-3 field-group">
+                            <div class="col-6">
+                                <label class="form-label">fts</label>
+                                <input type="text" id="dec_fts" class="form-control" placeholder="e.g. srcuser, location">
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label">ftscomment</label>
+                                <input type="text" id="dec_ftscomment" class="form-control" placeholder="First time seen comment">
+                            </div>
+                        </div>
+                        <div class="field-group d-flex gap-4">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="dec_accumulate">
+                                <label class="form-check-label" for="dec_accumulate">accumulate</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="dec_use_own_name">
+                                <label class="form-check-label" for="dec_use_own_name">use_own_name</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- STEP 4 — Review -->
+                    <div class="wizard-pane" data-step="4">
+                        <p class="panel-desc" style="margin-bottom:.9rem;">Verify before save. XML refreshes automatically on the right panel.</p>
+                        <div id="decoderReviewSummary" class="row g-2 small"></div>
+
+                        <div class="field-group mt-3">
+                            <label class="form-label">Save to file <small class="text-muted">(target file in Wazuh Manager)</small></label>
+                            <select id="dec_filename" class="form-select"><option value="">-- choose existing file, or type for create new one --</option></select>
+                            <div class="field-hint">Leave blank for use <code>local_decoder.xml</code> (or saved file before in edit mode).</div>
+                        </div>
+
+                        <div class="field-group mt-3">
+                            <label class="form-label">Change message <small class="text-muted">(optional, shown in Version History)</small></label>
+                            <textarea id="dec_commit_message" class="form-control" rows="2" placeholder="e.g. Fix regex offset, Add sibling decoder"></textarea>
+                            <div class="field-hint">Short summary of why this decoder was created or edited. Shown in version history.</div>
+                        </div>
+
+                        <div id="decoderError" class="text-danger small mt-3"></div>
+                        <div class="d-flex flex-wrap gap-2 mt-3">
+                            <button id="btnSaveDecoder" class="btn btn-success" onclick="saveDecoder()"><i class="fa-solid fa-floppy-disk me-1"></i>Save to MongoDB</button>
+                            <button class="btn btn-outline-secondary" onclick="clearDecoder()">Clear form</button>
+                        </div>
+                    </div>
+
+                    <div class="wizard-nav">
+                        <button class="btn btn-outline-secondary btn-sm" id="decPrevBtn" onclick="wizardNav('dec', -1)"><i class="fa-solid fa-arrow-left me-1"></i>Back</button>
+                        <span class="text-muted small" id="decStepCaption">Step 1 of 4</span>
+                        <button class="btn btn-primary btn-sm" id="decNextBtn" onclick="wizardNav('dec', 1)">Next <i class="fa-solid fa-arrow-right ms-1"></i></button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Live XML preview -->
+        <div class="col-lg-5">
+            <div class="panel preview-panel">
+                <div class="panel-body">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <h5 class="panel-title mb-0">Generated XML <span class="preview-live-tag">live</span></h5>
+                        <div class="d-flex gap-2">
+                            <button class="icon-btn" title="Refresh" onclick="generateDecoderXML()">
+                                <i class="fa-solid fa-rotate"></i>
+                            </button>
+                            <button class="icon-btn" title="Copy" onclick="copyXML('decoderOutput')">
+                                <i class="fa-solid fa-copy"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="xml-output" id="decoderOutput"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block page_js %}
+<script src="{{ url_for('static', filename='js/decoder_builder.js') }}"></script>
+{% endblock %}

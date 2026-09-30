@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block topbar_title %}Saved Decoders{% endblock %}
+
+{% block content %}
+{% include "partials/_view_xml_modal.html" %}
+<div id="tabDecoderList">
+    <div class="page-head">
+        <h1>Saved Decoders</h1>
+        <p>All decoders stored in the <code>decoders</code> MongoDB collection.</p>
+    </div>
+    <div class="panel">
+        <div class="panel-body">
+            <div class="table-toolbar">
+                <div class="search-wrap">
+                    <i class="fa-solid fa-magnifying-glass"></i>
+                    <input type="text" id="decoderSearchInput" class="form-control search-input" placeholder="Search decoder name...">
+                </div>
+                <button class="icon-btn" title="Refresh" onclick="loadDecoderTable()">
+                    <i class="fa-solid fa-rotate"></i>
+                </button>
+                <a class="btn btn-primary btn-sm ms-auto" href="{{ url_for('pages.decoder_builder_page') }}"><i class="fa-solid fa-plus me-1"></i>New Decoder</a>
+            </div>
+            <div style="overflow-x:auto;">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Name</th><th>Parent</th><th>Type</th><th>program_name</th><th>Sync Status</th><th>Updated</th><th></th>
+                        </tr>
+                    </thead>
+                    <tbody id="decoderTableBody"></tbody>
+                </table>
+            </div>
+            <div id="decoderTableEmpty" class="empty-state d-none">
+                <i class="fa-solid fa-puzzle-piece" style="font-size:40px; opacity:.5; margin-bottom:.7rem;"></i>
+                <h6>No decoders yet</h6>
+                <div>Create your first decoder in Decoder Builder.</div>
+            </div>
+            <div class="pager" id="decoderPager"></div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block page_js %}
+<script src="{{ url_for('static', filename='js/decoder_list.js') }}"></script>
+{% endblock %}

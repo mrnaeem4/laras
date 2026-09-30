@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>LARAS.io - Auth</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="shortcut icon" href="{{ url_for('static', filename='img/favicon.png') }}" type="image/x-icon">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+
+    :root {
+      --bg-color: #070d19;
+      --card-bg: rgba(17, 26, 46, 0.75);
+      --border-color: rgba(31, 43, 69, 0.8);
+      --accent-glow: rgba(99, 102, 241, 0.25);
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      /* dvh = viewport minus browser UI; falls back to 100vh on old browsers.
+         Without this the card is pushed off-centre by mobile URL bars. */
+      min-height: 100dvh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      /* Padding keeps the card off the screen edges. */
+      padding: 1.5rem 1rem;
+      background-color: var(--bg-color);
+      background-image:
+        radial-gradient(at 10% 20%, rgba(99, 102, 241, 0.18) 0px, transparent 50%),
+        radial-gradient(at 90% 80%, rgba(20, 184, 166, 0.15) 0px, transparent 50%),
+        radial-gradient(at 50% 50%, rgba(30, 58, 138, 0.2) 0px, transparent 70%),
+        linear-gradient(to right, rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+      color: #e2e8f0;
+      font-family: 'Inter', system-ui, sans-serif;
+      /* No overflow override here: the decorative blobs/watermark are
+         position:fixed (see below) so they never add scroll area. A tall
+         card still scrolls naturally via the document scroller. */
+      position: relative;
+    }
+
+    .bg-shield-watermark {
+      position: fixed;
+      font-size: 350px;
+      z-index: -1;
+      opacity: 0.07;
+      pointer-events: none;
+      right: -80px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: #3b82f6;
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      width: 450px;
+      height: 450px;
+      background: linear-gradient(135deg, rgba(99, 102, 241, 0.15), rgba(20, 184, 166, 0.1));
+      top: -100px;
+      left: -100px;
+      border-radius: 50%;
+      filter: blur(80px);
+      z-index: -1;
+      animation: floatBlob1 12s ease-in-out infinite alternate;
+    }
+
+    body::after {
+      content: "";
+      position: fixed;
+      width: 400px;
+      height: 400px;
+      background: linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(147, 51, 234, 0.1));
+      bottom: -100px;
+      right: -100px;
+      border-radius: 50%;
+      filter: blur(80px);
+      z-index: -1;
+      animation: floatBlob2 15s ease-in-out infinite alternate;
+    }
+
+    @keyframes floatBlob1 {
+      0% { transform: translate(0, 0) scale(1); }
+      100% { transform: translate(60px, 80px) scale(1.2); }
+    }
+
+    @keyframes floatBlob2 {
+      0% { transform: translate(0, 0) scale(1); }
+      100% { transform: translate(-70px, -60px) scale(1.3); }
+    }
+
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      padding: 2.5rem;
+      width: 100%;
+      max-width: 380px;
+      box-shadow: 0 25px 50px rgba(0, 0, 0, 0.5), 0 0 40px var(--accent-glow);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      animation: slideUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+      transform: translateY(20px);
+      opacity: 0;
+      z-index: 1;
+    }
+
+    @keyframes slideUp {
+      to {
+        transform: translateY(0);
+        opacity: 1;
+      }
+    }
+
+    h1 {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 1.5rem;
+      margin: 0 0 1.5rem;
+      letter-spacing: -0.5px;
+      background: linear-gradient(135deg, #fff 30%, #94a3b8 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    label {
+      display: block;
+      font-size: 0.85rem;
+      margin-bottom: 0.4rem;
+      color: #94a3b8;
+      font-weight: 500;
+    }
+
+    input {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 0.7rem 0.85rem;
+      margin-bottom: 1.2rem;
+      background: rgba(7, 13, 25, 0.8);
+      border: 1px solid #263449;
+      border-radius: 8px;
+      color: #e2e8f0;
+      transition: all 0.3s ease;
+    }
+
+    input:focus {
+      outline: none;
+      border-color: #6366F1;
+      box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.25);
+      background: rgba(11, 18, 32, 0.9);
+    }
+
+    button {
+      width: 100%;
+      padding: 0.75rem;
+      background: linear-gradient(135deg, #6366F1 0%, #3b82f6 100%);
+      border: none;
+      border-radius: 8px;
+      color: white;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      box-shadow: 0 4px 15px rgba(99, 102, 241, 0.4);
+    }
+
+    button:hover {
+      background: linear-gradient(135deg, #4f46e5 0%, #2563eb 100%);
+      transform: translateY(-1px);
+      box-shadow: 0 6px 20px rgba(99, 102, 241, 0.5);
+    }
+
+    button:active {
+      transform: translateY(0);
+    }
+
+    .flash {
+      padding: 0.7rem 0.85rem;
+      border-radius: 8px;
+      margin-bottom: 1.2rem;
+      font-size: 0.85rem;
+      animation: shake 0.4s ease-in-out;
+    }
+
+    @keyframes shake {
+      0%, 100% { transform: translateX(0); }
+      20%, 60% { transform: translateX(-4px); }
+      40%, 80% { transform: translateX(4px); }
+    }
+
+    .flash.danger {
+      background: rgba(63, 29, 36, 0.85);
+      color: #fca5a5;
+      border: 1px solid #5b2530;
+    }
+
+    .flash.warning {
+      background: rgba(63, 50, 29, 0.85);
+      color: #fcd34d;
+      border: 1px solid #5b4a25;
+    }
+
+    .tech-icon {
+      font-size: 80px;
+      background: linear-gradient(135deg, #6366F1 0%, #14B8A6 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      animation: floatIcon 3s ease-in-out infinite;
+    }
+
+    @keyframes floatIcon {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-6px); }
+    }
+
+    /* ── Mobile / small-screen adjustments ─────────────────────────── */
+    @media (max-width: 420px) {
+      .card {
+        padding: 1.6rem 1.25rem;
+        border-radius: 14px;
+      }
+      h1 { font-size: 1.3rem; margin-bottom: 1.1rem; }
+      .card img { width: 76px; }
+      .bg-shield-watermark { font-size: 200px; right: -60px; opacity: 0.05; }
+      body::before { width: 260px; height: 260px; top: -70px; left: -70px; }
+      body::after { width: 240px; height: 240px; bottom: -70px; right: -70px; }
+    }
+
+    /* Short landscape phones: don't clip the card vertically. */
+    @media (max-height: 560px) {
+      body { align-items: flex-start; }
+    }
+  </style>
+</head>
+<body>
+
+  <i class="fa-solid fa-shield-halved bg-shield-watermark"></i>
+
+  <div class="card">
+    <div class="text-center text-white">
+      <img src="{{ url_for('static', filename='img/laras-logo.png') }}" alt="Laras Logo" width="100" class="mb-4">
+      <h1>LARAS.io | Login</h1>
+    </div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for category, message in messages %}
+        <div class="flash {{ category }}">{{ message }}</div>
+      {% endfor %}
+    {% endwith %}
+
+    <form method="POST">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+
+      <label for="username">Username</label>
+      <input type="text" id="username" name="username" placeholder="Username" autocomplete="username" required autofocus>
+
+      <label for="password">Password</label>
+      <input type="password" id="password" name="password" placeholder="*********" autocomplete="off" required>
+
+      <button type="submit"><i class="fa-solid fa-right-to-bracket me-1"></i>Login</button>
+    </form>
+  </div>
+</body>
+</html>

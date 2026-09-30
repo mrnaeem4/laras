@@ -1,0 +1,25 @@
+<div class="modal fade" id="diffModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="diffModalTitle">Diff</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="diffModalLoading" class="text-muted small">Loading diff...</div>
+                <div id="diffModalError" class="text-danger small d-none"></div>
+                <div id="diffModalWarning" class="small mb-2 d-none" style="background: var(--sev-medium); color: white; padding: 0.5rem 0.75rem; border-radius: var(--radius-sm);"></div>
+                <div id="diffModalBody" class="d-none">
+                    <div class="d-flex justify-content-between small text-muted mb-1">
+                        <span><i class="fa-solid fa-database me-1"></i>MongoDB (local)</span>
+                        <span><i class="fa-solid fa-server me-1"></i>Wazuh Manager (server)</span>
+                    </div>
+                    <div class="diff-grid" id="diffGrid"></div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>

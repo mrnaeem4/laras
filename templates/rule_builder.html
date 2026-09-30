@@ -1,0 +1,310 @@
+{% extends "base.html" %}
+{% block topbar_title %}Rule Builder{% endblock %}
+
+{% block content %}
+<div id="tabRule">
+    <div class="page-head">
+        <h1>Rule Builder</h1>
+        <p>Build a <code>&lt;rule&gt;</code> element from base rule, triggered condition, match condition, correlation, and taxonomy.</p>
+    </div>
+
+    <div class="row g-4">
+        <div class="col-lg-7">
+            <div class="panel">
+                <div class="panel-body">
+                    <ol class="wizard-track" id="ruleWizardTrack">
+                        <li class="active" data-goto="1"><div class="step-dot">1</div><div class="step-label">Basics</div></li>
+                        <li data-goto="2"><div class="step-dot">2</div><div class="step-label">Triggers</div></li>
+                        <li data-goto="3"><div class="step-dot">3</div><div class="step-label">Matching</div></li>
+                        <li data-goto="4"><div class="step-dot">4</div><div class="step-label">Correlation</div></li>
+                        <li data-goto="5"><div class="step-dot">5</div><div class="step-label">Taxonomy</div></li>
+                        <li data-goto="6"><div class="step-dot">6</div><div class="step-label">Review</div></li>
+                    </ol>
+
+                    <!-- STEP 1 — Basics -->
+                    <div class="wizard-pane active" data-step="1">
+                        <div class="row g-3 field-group">
+                            <div class="col-6">
+                                <label class="form-label">ID <span class="text-danger">*</span></label>
+                                <input type="number" id="rule_id" class="form-control font-monospace" placeholder="100001" min="1" max="999999">
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label">Level <span class="text-danger">*</span></label>
+                                <select id="rule_level" class="form-select">
+                                    {% for i in range(17) %}
+                                    <option value="{{ i }}" {% if i == 3 %}selected{% endif %}>{{ i }}</option>
+                                    {% endfor %}
+                                </select>
+                                <div class="field-hint" id="rule_level_sev_hint"></div>
+                            </div>
+                        </div>
+                        <div class="field-group">
+                            <label class="form-label">Description <span class="text-danger">*</span></label>
+                            <input type="text" id="rule_description" class="form-control" placeholder="e.g. SSH brute-force attempt detected">
+                        </div>
+                    </div>
+
+                    <!-- STEP 2 — Triggers -->
+                    <div class="wizard-pane" data-step="2">
+                        <div class="field-group">
+                            <label class="form-label">if_sid <small class="text-muted fw-normal">- autocomplete from MongoDB</small></label>
+                            <select id="rule_if_sid" class="form-select" multiple><option value="">-- type to search rule IDs --</option></select>
+                        </div>
+                        <div class="field-group">
+                            <label class="form-label">if_group <small class="text-muted fw-normal">- autocomplete from MongoDB</small></label>
+                            <select id="rule_if_group" class="form-select" multiple><option value="">-- type to search groups --</option></select>
+                        </div>
+                        <div class="row g-3 field-group">
+                            <div class="col-6">
+                                <label class="form-label">decoded_as <small class="text-muted fw-normal">- autocomplete</small></label>
+                                <select id="rule_decoded_as" class="form-select"><option value="">-- type decoder name --</option></select>
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label">if_level</label>
+                                <input type="number" id="rule_if_level" class="form-control" placeholder="1-16" min="1" max="16">
+                            </div>
+                        </div>
+                        <div class="row g-3 field-group">
+                            <div class="col-6">
+                                <label class="form-label">if_matched_sid <span class="chip">correlation</span></label>
+                                <input type="text" id="rule_if_matched_sid" class="form-control" placeholder="e.g. 101015">
+                                <div class="field-hint">Digunakan bersama frequency + timeframe.</div>
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label">if_matched_group <span class="chip">correlation</span></label>
+                                <input type="text" id="rule_if_matched_group" class="form-control" placeholder="e.g. file_inclusion">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- STEP 3 — Matching -->
+                    <div class="wizard-pane" data-step="3">
+                        <div class="field-group">
+                            <label class="form-label">match</label>
+                            <div class="input-group">
+                                <textarea id="rule_match" class="form-control font-monospace" rows="1" placeholder="e.g. Failed password"></textarea>
+                                <select id="rule_match_type" class="form-select" style="max-width:120px">
+                                    <option value="">osmatch</option>
+                                    <option value="osmatch">osmatch</option>
+                                    <option value="osregex">osregex</option>
+                                    <option value="pcre2">pcre2</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="field-group">
+                            <label class="form-label">regex</label>
+                            <div class="input-group">
+                                <textarea id="rule_regex" class="form-control font-monospace" rows="1" placeholder="e.g. \d+\.\d+\.\d+\.\d+"></textarea>
+                                <select id="rule_regex_type" class="form-select" style="max-width:120px">
+                                    <option value="">osregex</option>
+                                    <option value="osregex">osregex</option>
+                                    <option value="osmatch">osmatch</option>
+                                    <option value="pcre2">pcre2</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="sub-heading">URL Conditions</div>
+                        <div id="urlRows"></div>
+                        <button type="button" class="btn btn-sm btn-outline-primary mb-2" onclick="addUrlRow()">+ Add URL</button>
+
+                        <div class="sub-heading">Static Field Conditions</div>
+                        <div class="field-hint mb-2">Match a Wazuh <strong>static field</strong> using its dedicated element (<code>&lt;srcip&gt;</code>, <code>&lt;status&gt;</code>, <code>&lt;id&gt;</code>, ...). URL has its own section above.</div>
+                        <div id="staticFieldRows"></div>
+                        <button type="button" class="btn btn-sm btn-outline-info mb-2" onclick="addStaticFieldRow()">+ Add Static Field</button>
+
+                        <div class="sub-heading">Dynamic Field Conditions</div>
+                        <div class="field-hint mb-2">Match a <strong>dynamic field</strong> extracted by a decoder's <code>&lt;order&gt;</code> (e.g. <code>sysmon.image</code>) via <code>&lt;field name="..."&gt;</code>.</div>
+                        <div id="fieldRows"></div>
+                        <button type="button" class="btn btn-sm btn-outline-success mb-2" onclick="addFieldRow()">+ Add Field</button>
+
+                        <div class="sub-heading">Threat Intel - List Lookup</div>
+                        <div class="field-hint mb-2">Match field with CDB list (eg. Bad Reputation IP list) via <code>lookup="address_match_key"</code>.</div>
+                        <div id="listRows"></div>
+                        <button type="button" class="btn btn-sm btn-outline-warning mb-2" onclick="addListRow()">+ Add List Lookup</button>
+                    </div>
+
+                    <!-- STEP 4 — Correlation -->
+                    <div class="wizard-pane" data-step="4">
+                        <div class="field-group">
+                            <label class="form-label">Time Window</label>
+                            <input type="text" id="rule_time" class="form-control" placeholder='e.g. 10 pm - 5 am  atau  6 am - 8 pm'>
+                            <div class="field-hint">Rule active in this window time. Format: <code>HH am/pm - HH am/pm</code></div>
+                        </div>
+
+                        <div class="sub-heading">Frequency / Correlation</div>
+                        <div class="row g-2 field-group">
+                            <div class="col-4">
+                                <label class="form-label">frequency</label>
+                                <input type="number" id="rule_frequency" class="form-control" placeholder="e.g. 10" min="2">
+                            </div>
+                            <div class="col-4">
+                                <label class="form-label">timeframe <small class="text-muted">(s)</small></label>
+                                <input type="number" id="rule_timeframe" class="form-control" placeholder="e.g. 60" min="1">
+                            </div>
+                            <div class="col-4">
+                                <label class="form-label">ignore <small class="text-muted">(s)</small></label>
+                                <input type="number" id="rule_ignore" class="form-control" placeholder="e.g. 300" min="1">
+                            </div>
+                        </div>
+
+                        <div class="field-group">
+                            <label class="form-label">Correlation helpers</label>
+                            <div class="d-flex gap-3 flex-wrap">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="rule_same_srcip">
+                                    <label class="form-check-label" for="rule_same_srcip"><code>&lt;same_srcip /&gt;</code></label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="rule_different_srcip">
+                                    <label class="form-check-label" for="rule_different_srcip"><code>&lt;different_srcip /&gt;</code></label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="rule_same_url">
+                                    <label class="form-check-label" for="rule_same_url"><code>&lt;same_url /&gt;</code></label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="sub-heading"><code>&lt;same_field&gt;</code></div>
+                        <div id="sameFieldRows"></div>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="addSameFieldRow()">+ Add same_field</button>
+                    </div>
+
+                    <!-- STEP 5 — Taxonomy -->
+                    <div class="wizard-pane" data-step="5">
+                        <div class="field-group">
+                            <label class="form-label">group</label>
+                            <div class="tag-input-wrap" id="rule_group_tag_wrap">
+                                <div class="tag-list" id="rule_group_tag_list"></div>
+                                <input type="text" id="rule_group_typer" class="tag-input-field" placeholder="Type group name, press comma or Enter" autocomplete="off">
+                            </div>
+                            <input type="hidden" id="rule_group">
+                            <div class="field-hint">Press comma or Enter after each group name (e.g. syslog, authentication_failed). Stored as a comma-separated value.</div>
+                        </div>
+
+                        <div class="sub-heading">MITRE ATT&amp;CK IDs</div>
+                        <div id="mitreRows"></div>
+                        <button type="button" class="btn btn-sm btn-outline-secondary mb-2" onclick="addMitreRow()">+ Add MITRE ID</button>
+
+                        <div class="sub-heading">Info entries</div>
+                        <div id="infoRows"></div>
+                        <button type="button" class="btn btn-sm btn-outline-secondary mb-2" onclick="addInfoRow()">+ Add Info</button>
+
+                        <div class="sub-heading">Options</div>
+                        <div class="d-flex gap-3 flex-wrap field-group">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="opt_no_log" value="no_log">
+                                <label class="form-check-label" for="opt_no_log">no_log</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="opt_no_full_log" value="no_full_log">
+                                <label class="form-check-label" for="opt_no_full_log">no_full_log</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="opt_no_email_alert" value="no_email_alert">
+                                <label class="form-check-label" for="opt_no_email_alert">no_email_alert</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="opt_alert_by_email" value="alert_by_email">
+                                <label class="form-check-label" for="opt_alert_by_email">alert_by_email</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- STEP 6 — Review -->
+                    <div class="wizard-pane" data-step="6">
+                        <div id="ruleLifecycleStepper" class="mb-3"></div>
+
+                        <p class="panel-desc" style="margin-bottom:.9rem;">Always re-check before save. XML refreshes automatically in the right panel.</p>
+                        <div id="ruleReviewSummary" class="row g-2 small"></div>
+
+                        <div class="row g-2 mt-3">
+                            <div class="col-md-6">
+                                <div class="field-group">
+                                    <label class="form-label">Save to file <small class="text-muted">(target file in Wazuh Manager)</small></label>
+                                    <select id="rule_filename" class="form-select"><option value="">-- Choose existing file, or type for create new one --</option></select>
+                                    <div class="field-hint">Leave blank for use <code>local_rules.xml</code> (or saved file if in edit mode).</div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="field-group">
+                                    <label class="form-label">Wrapper name <code>&lt;group name&gt;</code> <small class="text-muted">(optional)</small></label>
+                                    <input type="text" id="rule_wrapper_group" class="form-control" placeholder="e.g. base_rule,">
+                                    <div class="field-hint"><code>&lt;group&gt;</code> name wrapper for this rule (can differ from the rule's own Group). Rules in the same file may have different wrappers; each wrapper becomes a separate <code>&lt;group&gt;</code> block on push. Leave blank to use this rule's own Group.</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="field-group mt-3">
+                            <label class="form-label">Change message <small class="text-muted">(optional, shown in Version History)</small></label>
+                            <textarea id="rule_commit_message" class="form-control" rows="2" placeholder="e.g. Increase severity, Add internal IP exclusion"></textarea>
+                            <div class="field-hint">Short summary of why this change was made. Stored in version history, not part of the rule content.</div>
+                        </div>
+
+                        <!-- Tech Stack linkage: rule to stack items. Used for
+                             filtering and CVE/KEV relevance context (Phase F).
+                             Metadata only: not part of the XML rule or
+                             content_hash. -->
+                        <div class="field-group mt-3">
+                            <label class="form-label">Tech Stack <small class="text-muted">(optional, link rule to stack items)</small></label>
+                            <select id="rule_tech_stack" class="form-select" multiple></select>
+                            <div class="field-hint">Select the technologies covered by this rule. Used for filtering and CVE/KEV relevance.</div>
+                        </div>
+
+                        <div id="devSyncTestWarning"></div>
+
+                        <div class="sub-heading">Test Samples <span class="text-danger">*</span></div>
+                        <div class="field-hint mb-2">
+                            At least 1 sample log that <strong>must match</strong> this rule is required before saving.
+                            Click <strong>Run</strong> to test against Wazuh Dev (requires an active Dev connection); raw results are shown as-is.
+                            <strong>Run All Samples</strong> saves the rule, auto-deploys it to Wazuh Dev (+ reload), then runs all samples against the current version.
+                        </div>
+                        <div id="testSampleRows"></div>
+                        <div class="d-flex gap-2 mb-2">
+                            <button type="button" class="btn btn-sm btn-outline-primary" onclick="addTestSampleRow()">+ Add Sample</button>
+                            <button type="button" class="btn btn-sm btn-outline-success" onclick="runAllTestSamples()"><i class="fa-solid fa-rocket me-1"></i>Deploy &amp; Run All</button>
+                        </div>
+
+                        <div id="ruleError" class="text-danger small mt-3"></div>
+                        <div class="d-flex flex-wrap gap-2 mt-3">
+                            <button id="btnSaveRule" class="btn btn-success" onclick="saveRule()"><i class="fa-solid fa-floppy-disk me-1"></i>Save to MongoDB</button>
+                            <button class="btn btn-outline-secondary" onclick="clearRule()">Clear form</button>
+                        </div>
+                    </div>
+
+                    <div class="wizard-nav">
+                        <button class="btn btn-outline-secondary btn-sm" id="rulePrevBtn" onclick="wizardNav('rule', -1)"><i class="fa-solid fa-arrow-left me-1"></i>Back</button>
+                        <span class="text-muted small" id="ruleStepCaption">Step 1 of 6</span>
+                        <button class="btn btn-primary btn-sm" id="ruleNextBtn" onclick="wizardNav('rule', 1)">Next <i class="fa-solid fa-arrow-right ms-1"></i></button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Live XML preview -->
+        <div class="col-lg-5">
+            <div class="panel preview-panel">
+                <div class="panel-body">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <h5 class="panel-title mb-0">Generated XML <span class="preview-live-tag">live</span></h5>
+                        <div class="d-flex gap-2">
+                            <button class="icon-btn" title="Refresh" onclick="generateRuleXML()">
+                                <i class="fa-solid fa-rotate"></i>
+                            </button>
+                            <button class="icon-btn" title="Copy" onclick="copyXML('ruleOutput')">
+                                <i class="fa-solid fa-copy"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="xml-output" id="ruleOutput"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block page_js %}
+<script src="{{ url_for('static', filename='js/rule_builder.js') }}"></script>
+{% endblock %}

@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block topbar_title %}Sync &amp; Manager{% endblock %}
+
+{% block content %}
+<div id="tabSync">
+    <div class="page-head">
+        <h1>Sync &amp; Manager</h1>
+        <p>Sync local rules and decoders with the Wazuh Manager, and manage the Wazuh service.</p>
+    </div>
+    <div class="row g-4">
+        <!-- Pull Panel -->
+        <div class="col-md-6">
+            <div class="panel h-100">
+                <div class="panel-body">
+                    <h5 class="panel-title"><i class="fa-solid fa-download me-1"></i>Pull from Wazuh</h5>
+                    <p class="panel-desc">Fetch the latest rules and decoders from the Wazuh Manager into your local database.</p>
+                    <button class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#pullModal">
+                        Pull Data
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Push Panel -->
+        <div class="col-md-6">
+            <div class="panel h-100">
+                <div class="panel-body">
+                    <h5 class="panel-title"><i class="fa-solid fa-upload me-1"></i>Push to Wazuh</h5>
+                    <p class="panel-desc">Submit rule and decoder changes from the local database for promotion to the Wazuh Manager. Requires approval from another user before being sent.</p>
+                    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#pushModal">
+                        Request Promote
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+        {% include "partials/_promotion_queue_panel.html" %}
+
+        <!-- Restart Panel -->
+        <div class="col-md-12">
+            <div class="panel">
+                <div class="panel-body border-top border-warning border-3" style="border-top-style: solid; border-top-color: var(--sev-medium) !important; border-top-width: 4px !important;">
+                    <h5 class="panel-title" style="color: var(--sev-medium);"><i class="fa-solid fa-rotate-right me-1"></i>Restart Wazuh Manager</h5>
+                    <p class="panel-desc">Apply new rule and decoder configuration by restarting the Wazuh Manager service.</p>
+                    <button class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#restartModal">
+                        Restart Manager
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block page_js %}
+<script src="{{ url_for('static', filename='js/sync_manager.js') }}"></script>
+{% endblock %}

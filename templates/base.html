@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LARAS.io - {{ title }}</title>
+    <link rel="shortcut icon" href="{{ url_for('static', filename='img/favicon.png') }}" type="image/x-icon">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <!-- Bootstrap 5 (behavior only; visuals overridden below) -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Font Awesome 6 (icons) -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <!-- Choices.js -->
+    <link href="https://cdn.jsdelivr.net/npm/choices.js@10.2.0/public/assets/styles/choices.min.css" rel="stylesheet">
+    <!-- Typefaces: Space Grotesk (display), Inter (body), JetBrains Mono (code/technical fields) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+    <link href="{{ url_for('static', filename='css/app-dark.css') }}" rel="stylesheet">
+
+</head>
+<body>
+
+    <div class="app-shell">
+
+        <aside class="app-sidebar" id="appSidebar">
+            <div class="brand">
+                <div class="brand-mark">
+                    <img src="{{ url_for('static', filename='img/laras-logo.png') }}" alt="Laras Logo" width="40">
+                </div>
+                <div>
+                    <div class="brand-name">LARAS.io</div>
+                </div>
+            </div>
+
+            <nav class="side-nav" id="mainTabs">
+                <div class="side-nav-label">Build</div>
+                <a class="sidebar-menu {{ 'active' if active_page == 'decoder_builder' else '' }}" href="{{ url_for('pages.decoder_builder_page') }}">
+                    <i class="fa-solid fa-border-all"></i>
+                    Decoder Builder
+                </a>
+                <a class="sidebar-menu {{ 'active' if active_page == 'rule_builder' else '' }}" href="{{ url_for('pages.rule_builder_page') }}">
+                    <i class="fa-solid fa-shield-halved"></i>
+                    Rule Builder
+                </a>
+
+                <div class="side-nav-label">Library</div>
+                <a class="sidebar-menu {{ 'active' if active_page == 'decoder_list' else '' }}" href="{{ url_for('pages.decoder_list_page') }}">
+                    <i class="fa-solid fa-list"></i>
+                    Saved Decoders
+                    <span class="count" id="decoderCountBadge">-</span>
+                </a>
+                <a class="sidebar-menu {{ 'active' if active_page == 'rule_list' else '' }}" href="{{ url_for('pages.rule_list_page') }}">
+                    <i class="fa-solid fa-file-shield"></i>
+                    Saved Rules
+                    <span class="count" id="ruleCountBadge">-</span>
+                </a>
+
+                <div class="side-nav-label">Tools</div>
+                <a class="sidebar-menu {{ 'active' if active_page == 'import_export' else '' }}" href="{{ url_for('pages.import_export_page') }}">
+                    <i class="fa-solid fa-arrow-right-arrow-left"></i>
+                    Import / Export
+                </a>
+                <a class="sidebar-menu {{ 'active' if active_page == 'sync_manager' else '' }}" href="{{ url_for('pages.sync_manager_page') }}">
+                    <i class="fa-solid fa-arrows-rotate"></i>
+                    Sync &amp; Manager
+                </a>
+                <a class="sidebar-menu {{ 'active' if active_page == 'tech_stack' else '' }}" href="{{ url_for('pages.tech_stack_page') }}">
+                    <i class="fa-solid fa-link"></i>
+                    Tech Stack
+                </a>
+                <a class="sidebar-menu {{ 'active' if active_page == 'ai_proposals' else '' }}" href="{{ url_for('pages.ai_proposals_page') }}">
+                    <i class="fa-solid fa-robot"></i>
+                    AI Proposals
+                </a>
+                <a class="sidebar-menu {{ 'active' if active_page == 'log_tester' else '' }}" href="{{ url_for('pages.log_tester_page') }}">
+                    <i class="fa-solid fa-flask-vial"></i>
+                    Log Tester
+                </a>
+                <a class="sidebar-menu {{ 'active' if active_page == 'pcre2_tester' else '' }}" href="{{ url_for('pages.pcre2_tester_page') }}">
+                    <i class="fa-solid fa-code"></i>
+                    PCRE2 Tester
+                </a>
+
+                <div class="side-nav-label">Auth</div>
+                <a class="sidebar-menu {{ 'active' if active_page == 'import_export' else '' }}" href="{{ url_for('auth.logout') }}">
+                    <i class="fa-solid fa-right-from-bracket"></i>
+                    Logout
+                </a>
+            </nav>
+
+            <div class="sidebar-foot">
+                <h6>LARAS.io</h6>
+                <div class="brand-sub" style="font-size:8px">Wazuh Detection Lifecycle Manager</div>
+            </div>
+        </aside>
+        <div class="sidebar-backdrop" id="sidebarBackdrop" onclick="toggleSidebar(false)"></div>
+
+        <div class="app-main">
+
+            <header class="app-topbar">
+                <button class="btn btn-outline-secondary btn-sm" id="sidebarToggle" onclick="toggleSidebar()">
+                    <i class="fa-solid fa-bars"></i>
+                </button>
+                <div class="topbar-title">
+                    <span class="eyebrow">LARAS.io</span>
+                    <span id="topbarTitleText">{% block topbar_title %}{% endblock %}</span>
+                </div>
+            </header>
+
+            <main class="app-content">
+                {% block content %}{% endblock %}
+            </main>
+
+            <footer class="app-footer">
+                <div class="footer-inner">
+                    <div class="footer-left">
+                        <span class="footer-brand">LARAS.io</span>
+                        <span class="footer-divider">·</span>
+                        <span class="footer-text">by Mr. Naeem</span>
+                    </div>
+                    <div class="footer-right">
+                        <span class="footer-version">v1.0.0</span>
+                    </div>
+                </div>
+            </footer>
+
+        </div>
+    </div>
+
+    {% include "partials/_confirm_delete_modal.html" %}
+    {% include "partials/_restart_modal.html" %}
+    {% include "partials/_pull_modal.html" %}
+    {% include "partials/_push_modal.html" %}
+    {% include "partials/_diff_modal.html" %}
+    {% include "partials/_history_modal.html" %}
+
+    <div id="toastContainer" aria-live="polite" aria-atomic="true"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/choices.js@10.2.0/public/assets/scripts/choices.min.js"></script>
+    <script src="{{ url_for('static', filename='js/csrf.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/common.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/sync_common.js') }}"></script>
+    {% block page_js %}{% endblock %}
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            initChoices();
+            initLevelSevHint();
+            loadSidebarCounts();
+            // Wire the wizard step navigation + live XML preview only when
+            // the corresponding builder page is present.
+            if (document.getElementById('tabRule')) initWizards('rule');
+            if (document.getElementById('tabDecoder')) initWizards('dec');
+        });
+
+        function toggleSidebar(force){
+            const sb = document.getElementById('appSidebar');
+            const bd = document.getElementById('sidebarBackdrop');
+            const open = force === undefined ? !sb.classList.contains('open') : force;
+            sb.classList.toggle('open', open);
+            bd.classList.toggle('show', open);
+        }
+
+        function copyXML(elId) {
+            const text = document.getElementById(elId).textContent;
+            if (!text.trim()) return;
+            navigator.clipboard.writeText(text).then(() => {
+                showToast('Copied to clipboard!', 'success');
+            }).catch(() => { alert(text); });
+        }
+    </script>
+</body>
+</html>

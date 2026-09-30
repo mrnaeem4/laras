@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% block topbar_title %}Import / Export{% endblock %}
+
+{% block content %}
+<div id="tabImport">
+    <div class="page-head">
+        <h1>Import / Export</h1>
+        <p>Import existing Wazuh XML files, or export MongoDB data as deploy-ready XML.</p>
+    </div>
+    <div class="row g-4">
+        <div class="col-md-6">
+            <div class="panel h-100"><div class="panel-body">
+                <h5 class="panel-title"><i class="fa-solid fa-file-import me-1"></i>Import Rules XML</h5>
+                <p class="panel-desc">Upload <code>&lt;group&gt;</code> / <code>&lt;rule&gt;</code> XML files. All valid rules are upserted into MongoDB.</p>
+                <div class="import-zone mb-3">
+                    <label class="form-label d-block">Select rules XML file</label>
+                    <input class="form-control" type="file" id="importRulesFile" accept=".xml" multiple>
+                </div>
+                <button class="btn btn-primary" onclick="uploadXML('rules')"><i class="fa-solid fa-upload me-1"></i>Upload &amp; Import</button>
+                <div id="importRulesStatus" class="small mt-2"></div>
+            </div></div>
+        </div>
+        <div class="col-md-6">
+            <div class="panel h-100"><div class="panel-body">
+                <h5 class="panel-title"><i class="fa-solid fa-file-import me-1"></i>Import Decoders XML</h5>
+                <p class="panel-desc">Upload <code>&lt;decoder_list&gt;</code> / <code>&lt;decoder&gt;</code> XML files. All valid decoders are upserted into MongoDB.</p>
+                <div class="import-zone mb-3">
+                    <label class="form-label d-block">Select decoders XML file</label>
+                    <input class="form-control" type="file" id="importDecodersFile" accept=".xml" multiple>
+                </div>
+                <button class="btn btn-primary" onclick="uploadXML('decoders')"><i class="fa-solid fa-upload me-1"></i>Upload &amp; Import</button>
+                <div id="importDecodersStatus" class="small mt-2"></div>
+            </div></div>
+        </div>
+        <div class="col-md-6">
+            <div class="panel h-100"><div class="panel-body">
+                <h5 class="panel-title"><i class="fa-solid fa-file-export me-1"></i>Export Rules XML</h5>
+                <p class="panel-desc">Export all rules in MongoDB. Can be filtered by rule IDs.</p>
+                <div class="field-group">
+                    <label class="form-label">Rule IDs to export <small class="text-muted">(blank = all)</small></label>
+                    <input type="text" id="exportRuleIds" class="form-control" placeholder="e.g. 100001, 100002">
+                </div>
+                <div class="field-group">
+                    <label class="form-label">Group name</label>
+                    <input type="text" id="exportRuleGroup" class="form-control" value="custom" placeholder="e.g. custom">
+                </div>
+                <button class="btn btn-primary" onclick="triggerExportRules()"><i class="fa-solid fa-download me-1"></i>Download Rules XML</button>
+            </div></div>
+        </div>
+        <div class="col-md-6">
+            <div class="panel h-100"><div class="panel-body">
+                <h5 class="panel-title"><i class="fa-solid fa-file-export me-1"></i>Export Decoders XML</h5>
+                <p class="panel-desc">Export all decoders in MongoDB. Can be filtered by name.</p>
+                <div class="field-group">
+                    <label class="form-label">Decoder names to export <small class="text-muted">(blank = all)</small></label>
+                    <input type="text" id="exportDecoderNames" class="form-control" placeholder="e.g. sshd, nginx">
+                </div>
+                <button class="btn btn-primary" onclick="triggerExportDecoders()"><i class="fa-solid fa-download me-1"></i>Download Decoders XML</button>
+            </div></div>
+        </div>
+
+        <!-- Database Backup (Phase E) -->
+        <div class="col-12">
+            <div class="panel"><div class="panel-body">
+                <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
+                    <div>
+                        <h5 class="panel-title mb-1"><i class="fa-solid fa-database me-1"></i>Database Backup</h5>
+                        <p class="panel-desc mb-0">Backups are stored as gzip JSON in S3/MinIO. Restore drops and re-inserts the selected collections from the backup.</p>
+                    </div>
+                    <button class="btn btn-primary btn-sm" id="btnCreateBackup" onclick="createBackupNow()"><i class="fa-solid fa-plus me-1"></i>Create Backup</button>
+                </div>
+                <div id="backupStatus" class="small mb-2"></div>
+                <div style="overflow-x:auto;">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Backup ID</th><th>Triggered by</th><th>Documents</th><th>Size</th><th>Created</th><th></th>
+                            </tr>
+                        </thead>
+                        <tbody id="backupTableBody"></tbody>
+                    </table>
+                </div>
+                <div id="backupTableEmpty" class="empty-state d-none">
+                    <i class="fa-solid fa-database" style="font-size:40px; opacity:.5; margin-bottom:.7rem;"></i>
+                    <h6>No backups yet</h6>
+                    <div>Click "Create Backup" to store the first snapshot in S3/MinIO.</div>
+                </div>
+            </div></div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: confirm restore -->
+<div class="modal fade" id="restoreConfirmModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fa-solid fa-triangle-exclamation me-1 text-warning"></i>Confirm Restore</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-2">Restoring <strong id="restoreBackupId" class="wrap-col"></strong> will <strong>drop and re-insert</strong> the following collections:</p>
+                <div id="restoreCollectionList" class="small mb-2"></div>
+                <p class="text-danger small mb-0">This cannot be undone. Consider creating a backup of the current state first.</p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline-secondary btn-sm" id="btnCancelRestore" data-bs-dismiss="modal">Cancel</button>
+                <button class="btn btn-danger btn-sm" id="btnConfirmRestore"><i class="fa-solid fa-trash-restore me-1"></i>Restore</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block page_js %}
+<script src="{{ url_for('static', filename='js/import_export.js') }}"></script>
+{% endblock %}

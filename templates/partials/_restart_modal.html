@@ -1,0 +1,19 @@
+<div class="modal fade" id="restartModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Restart Wazuh Manager</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-2">Select the environment to restart. The API connection may be interrupted briefly.</p>
+                <p class="small text-muted mb-0" id="restartModalStatus"></p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline-secondary btn-sm me-auto" data-bs-dismiss="modal">Cancel</button>
+                <button class="btn btn-outline-primary btn-sm" id="btnConfirmRestartDev">Restart Dev</button>
+                <button class="btn btn-danger btn-sm" id="btnConfirmRestartProd" style="background: var(--sev-critical); border-color: var(--sev-critical);">Restart Prod</button>
+            </div>
+        </div>
+    </div>
+</div>

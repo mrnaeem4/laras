@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% block topbar_title %}Tech Stack{% endblock %}
+
+{% block content %}
+<div id="tabTechStack">
+    <div class="page-head">
+        <h1>Tech Stack</h1>
+        <p>Inventory of managed technologies and infrastructure. Used as a CVE/KEV relevance filter and Wazuh rule context.</p>
+    </div>
+    <div class="panel">
+        <div class="panel-body">
+            <div class="table-toolbar">
+                <div class="form-group d-flex gap-2 align-items-center">
+                    <div class="search-wrap flex-grow-1">
+                        <i class="fa-solid fa-magnifying-glass"></i>
+                        <input type="text" id="tsSearchInput" class="form-control search-input" placeholder="Search vendor, product, or note...">
+                    </div>
+                </div>
+                <button class="icon-btn" title="Refresh" onclick="loadTechStack()">
+                    <i class="fa-solid fa-rotate"></i>
+                </button>
+                <button class="icon-btn" id="tsKevSyncBtn" title="Sync vendor/product catalog from KEV feed" onclick="syncKevCatalog()">
+                    <i class="fa-solid fa-cloud-arrow-down"></i>
+                </button>
+                <button class="btn btn-primary btn-sm ms-auto" onclick="openTechStackForm()"><i class="fa-solid fa-plus me-1"></i>Add Stack</button>
+            </div>
+            <div style="overflow-x:auto;">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Vendor</th><th>Product</th><th>Version</th><th>Category</th><th>Environment</th><th>Note</th><th></th>
+                        </tr>
+                    </thead>
+                    <tbody id="techStackTableBody"></tbody>
+                </table>
+            </div>
+            <div id="techStackTableEmpty" class="empty-state d-none">
+                <i class="fa-solid fa-link" style="font-size:40px; opacity:.5; margin-bottom:.7rem;"></i>
+                <h6>No stack registered</h6>
+                <div>Click "Add Stack" to register the first technology.</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: add/edit form -->
+<div class="modal fade" id="techStackModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="techStackModalTitle">Add Stack</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="tsId">
+                <div class="field-group">
+                    <label class="form-label">Vendor <span class="text-danger">*</span></label>
+                    <select id="tsVendor" class="form-select"></select>
+                    <div class="field-hint">Pick a vendor from the KEV catalog, or type to add your own.</div>
+                </div>
+                <div class="field-group">
+                    <label class="form-label">Product <span class="text-danger">*</span></label>
+                    <select id="tsProduct" class="form-select"></select>
+                    <div class="field-hint">Options follow the selected vendor. Type to add your own.</div>
+                </div>
+                <div class="field-group">
+                    <label class="form-label">Version</label>
+                    <input type="text" id="tsVersion" class="form-control" placeholder="e.g. 2022, 1.24.0 (blank = all versions)">
+                </div>
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <div class="field-group">
+                            <label class="form-label">Category</label>
+                            <select id="tsCategory" class="form-select">
+                                <option value="">Select</option>
+                                <option value="os">OS</option>
+                                <option value="web">Web Server / App</option>
+                                <option value="db">Database</option>
+                                <option value="network">Network</option>
+                                <option value="app">Application</option>
+                                <option value="other">Other</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="field-group">
+                            <label class="form-label">Environment</label>
+                            <select id="tsEnvironment" class="form-select">
+                                <option value="">Select</option>
+                                <option value="dev">Dev</option>
+                                <option value="prod">Prod</option>
+                                <option value="both">Both</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                <div class="field-group">
+                    <label class="form-label">Note</label>
+                    <textarea id="tsNote" class="form-control" rows="2" placeholder="Deployment context, e.g. behind reverse proxy"></textarea>
+                </div>
+                <div id="techStackFormError" class="text-danger small mt-1"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+                <button class="btn btn-primary btn-sm" id="techStackSaveBtn" onclick="saveTechStackItem()">Save</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block page_js %}
+<script src="{{ url_for('static', filename='js/tech_stack.js') }}"></script>
+{% endblock %}
