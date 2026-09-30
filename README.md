@@ -454,7 +454,7 @@ Kontrak bentuk XML Wazuh sebagai satu sumber kebenaran ada di `services/wazuh_co
 ## 13. Struktur Proyek
 
 ```
-wz_rule_management/
+laras/
 ├── app.py                  # Factory create_app(), registrasi blueprint, CLI, scheduler
 ├── config.py               # Kelas Config (baca .env)
 ├── database.py             # Koneksi MongoDB, index, collection helper, migrasi sync_state
@@ -488,11 +488,10 @@ wz_rule_management/
 │   └── ai_utils.py         # Pipeline usulan rule AI
 │
 ├── templates/              # Jinja2: base + satu template per halaman + partials/ (modal)
-├── static/
-│   ├── css/                # app.css, app-dark.css
-│   └── js/                 # Satu file JS per halaman + common.js, csrf.js, sync_common.js
-│
-└── Wazuh Configuration/    # (gitignored) contoh ossec.conf, rules, CDB list sebagai referensi
+└── static/
+    ├── css/                # app.css, app-dark.css
+    ├── img/                # icon dan logo laras
+    └── js/                 # Satu file JS per halaman + common.js, csrf.js, sync_common.js
 ```
 
 ### Koleksi MongoDB
