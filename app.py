@@ -3,6 +3,22 @@ from flask_login import current_user
 from flask_session import Session
 from flask_wtf import CSRFProtect
 
+# ── ProxyFix (Phase G: TLS termination) ────────────────────────────────
+# TLS is terminated by gunicorn INSIDE the app container (self-signed),
+# so today no proxy sits in front and ProxyFix is not strictly required.
+# It is wired up anyway as a deliberate safety net: the moment anyone
+# puts nginx / an ingress / a load balancer in front (a very normal
+# "harden it later" step), Flask must read X-Forwarded-Proto/Host or
+# url_for(_external=True) and redirects will silently produce http://
+# URLs. With SESSION_COOKIE_SECURE=True that means the browser refuses
+# to send the session cookie and login appears to "not stick" — the
+# exact trap already documented in config.py. One line here prevents it.
+#
+# x_for=1 / x_proto=1 / x_host=1: trust exactly ONE hop. Trusting "*"
+# would let a client spoof X-Forwarded-* headers and is a real
+# vulnerability when the app is reachable directly.
+from werkzeug.middleware.proxy_fix import ProxyFix
+
 from config import Config
 from database import init_db, get_client, get_users_collection, get_db
 
@@ -10,93 +26,30 @@ from database import init_db, get_client, get_users_collection, get_db
 # Inisialisasi DI SINI (sebelum create_app) supaya @scheduler.task bisa
 # dipakai di mana pun dalam modul ini jika perlu. Scheduler dimulai di
 # dalam create_app dengan guard reloader (lihat komentar di bawah).
+#
+# CATATAN CONTAINER (Phase G): mode embedded ini HANYA untuk dev / legacy
+# single-process. Di docker-compose, container `web` diset
+# SCHEDULER_ENABLED=False dan job dijalankan container `scheduler`
+# terpisah lewat scheduler_runner.py (BlockingScheduler tanpa Flask).
+# Kedua jalur memakai definisi job yang SAMA dari services/jobs.py —
+# jangan duplikasi logika job di sini.
 from flask_apscheduler import APScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from services.backup_utils import create_backup
-from services.notification import notify
+from services.jobs import iter_enabled_jobs
 
 scheduler = APScheduler()
-
-
-def _run_scheduled_backup() -> None:
-    """Job terjadwal: backup semua koleksi ke S3 + notifikasi."""
-    db = get_db()
-    if db is None:
-        notify('Backup otomatis', 'MongoDB tidak tersedia.', level='error')
-        return
-
-    result = create_backup(db, triggered_by='scheduler')
-    if result.get('success'):
-        summary = (
-            f'{result.get("total_documents", 0)} dokumen ter-backup '
-            f'dari {len(result.get("collections", {}))} koleksi '
-            f'({result.get("size_bytes", 0) // 1024} KB)'
-        )
-        notify('Backup otomatis selesai', summary, level='success')
-    else:
-        notify('Backup otomatis GAGAL', result.get('error', ''), level='error')
-
-
-def _run_kev_sync() -> None:
-    """
-    Job terjadwal: sinkronkan katalog vendor/product dari feed KEV ke
-    `kev_catalog` (sumber dropdown Tech Stack). Hanya menyisipkan pasangan
-    yang belum ada -- tidak pernah menghapus entri lama.
-    """
-    from database import get_kev_catalog_collection, get_tech_stack_collection
-    from services.kev_utils import sync_vendor_catalog
-
-    db = get_db()
-    if db is None:
-        notify('Sync katalog KEV', 'MongoDB tidak tersedia.', level='error')
-        return
-
-    result = sync_vendor_catalog(get_kev_catalog_collection(), get_tech_stack_collection())
-    if result.get('success'):
-        notify(
-            'Sync katalog KEV selesai',
-            f'{result.get("inserted", 0)} pasangan vendor/product baru '
-            f'dari total {result.get("total_pairs", 0)} '
-            f'({result.get("vendors", 0)} vendor).',
-            level='success',
-        )
-    else:
-        notify('Sync katalog KEV GAGAL', result.get('error', ''), level='error')
-
-
-def _run_ai_proposals() -> None:
-    """
-    Job terjadwal: buat usulan draft rule dari advisory KEV yang relevan
-    dengan tech_stack (Phase F, Opsi C). Usulan TIDAK pernah otomatis
-    menjadi rule -- tersimpan sebagai pending review di `ai_proposals`.
-    """
-    from services.ai_utils import run_proposal_job
-
-    db = get_db()
-    if db is None:
-        notify('Usulan rule AI', 'MongoDB tidak tersedia.', level='error')
-        return
-
-    result = run_proposal_job(db, max_items=Config.AI_PROPOSAL_MAX_PER_RUN)
-    if not result.get('success'):
-        notify('Usulan rule AI GAGAL', result.get('error', ''), level='error')
-        return
-
-    generated = result.get('generated', 0)
-    if generated:
-        notify(
-            'Usulan rule AI selesai',
-            f'{generated} draft usulan baru '
-            f'({result.get("relevant", 0)} CVE relevan, '
-            f'{result.get("skipped_existing", 0)} sudah pernah diusulkan).',
-            level='success',
-        )
 
 
 def create_app():
     app = Flask(__name__)
     app.config.from_object(Config)
+
+    # Wrap the WSGI app so X-Forwarded-Proto/Host from a reverse proxy are
+    # honoured. Applied before any request handling. See the import comment
+    # above for why this exists even though gunicorn currently terminates
+    # TLS itself.
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 
     # Initialise MongoDB connection (non-fatal if unavailable)
     init_db()
@@ -256,21 +209,21 @@ def create_app():
         click.echo(f'{action} reviewer: "{username}".')
 
     # -- APScheduler (Phase E: backup otomatis terjadwal) --------------
-    # Dijalankan hanya kalau BACKUP_ENABLED=True. Guard reloader:
-    # `flask run --debug` (atau app.run(debug=True)) menjalankan create_app
-    # DUA KALI -- sekali di proses parent reloader, sekali di child yang
-    # benar-benar serve. Tanpa guard, scheduler ikut start dua kali dan
-    # job backup berjalan dobel. WERKZEUG_RUN_MAIN di-set 'true' HANYA di
-    # proses child (yang melayani request); proses parent reloader tidak
-    # punya env var itu. Jadi start scheduler hanya di proses yang
-    # melayani request -- parent reloader tidak usah start (job-nya dobel
-    # tidak berguna, dia cuma nunggu perubahan file).
+    # Mode embedded: HANYA dev / legacy single-process. Di deployment
+    # container, container `web` memakai SCHEDULER_ENABLED=False dan job
+    # dijalankan container `scheduler` terpisah (scheduler_runner.py).
+    #
+    # Guard reloader: `flask run --debug` (atau app.run(debug=True))
+    # menjalankan create_app DUA KALI -- sekali di proses parent reloader,
+    # sekali di child yang benar-benar serve. Tanpa guard, scheduler ikut
+    # start dua kali dan job berjalan dobel. WERKZEUG_RUN_MAIN di-set
+    # 'true' HANYA di proses child (yang melayani request).
+    #
+    # Definisi job + parsing cron ada di services/jobs.py supaya container
+    # scheduler memakai logika yang sama persis (satu sumber kebenaran).
     import os as _os
     scheduler.init_app(app)
     if not Config.SCHEDULER_ENABLED:
-        # Deployment multi-worker: worker ini sengaja tidak menjalankan
-        # scheduler (SCHEDULER_ENABLED=False) supaya job tidak dobel per
-        # worker. Lihat komentar SCHEDULER_ENABLED di config.py.
         app.logger.info(
             '[Scheduler] SCHEDULER_ENABLED=False -- scheduler tidak dijalankan di proses ini.'
         )
@@ -280,74 +233,17 @@ def create_app():
 
         any_job = False
 
-        # -- Job: backup otomatis --
-        if Config.BACKUP_ENABLED:
-            try:
-                trigger = CronTrigger.from_crontab(Config.BACKUP_CRON)
-            except ValueError:
-                app.logger.warning(
-                    '[Scheduler] BACKUP_CRON tidak valid ("%s") -- backup otomatis tidak dijadwalkan.',
-                    Config.BACKUP_CRON,
-                )
-            else:
-                scheduler.add_job(
-                    'scheduled_backup',
-                    _run_scheduled_backup,
-                    trigger=trigger,
-                    replace_existing=True,
-                    misfire_grace_time=3600,
-                    coalesce=True,
-                )
-                any_job = True
-                app.logger.info('[Scheduler] Backup otomatis dijadwalkan: %s', Config.BACKUP_CRON)
-        else:
-            app.logger.info('[Scheduler] BACKUP_ENABLED=False -- backup otomatis non-aktif.')
-
-        # -- Job: sync katalog vendor/product dari feed KEV (Phase F) --
-        if Config.KEV_SYNC_ENABLED:
-            try:
-                kev_trigger = CronTrigger.from_crontab(Config.KEV_SYNC_CRON)
-            except ValueError:
-                app.logger.warning(
-                    '[Scheduler] KEV_SYNC_CRON tidak valid ("%s") -- sync katalog KEV tidak dijadwalkan.',
-                    Config.KEV_SYNC_CRON,
-                )
-            else:
-                scheduler.add_job(
-                    'kev_catalog_sync',
-                    _run_kev_sync,
-                    trigger=kev_trigger,
-                    replace_existing=True,
-                    misfire_grace_time=3600,
-                    coalesce=True,
-                )
-                any_job = True
-                app.logger.info('[Scheduler] Sync katalog KEV dijadwalkan: %s', Config.KEV_SYNC_CRON)
-        else:
-            app.logger.info('[Scheduler] KEV_SYNC_ENABLED=False -- sync katalog KEV non-aktif.')
-
-        # -- Job: usulan draft rule AI (Phase F, Opsi C) --
-        if Config.AI_PROPOSAL_ENABLED:
-            try:
-                ai_trigger = CronTrigger.from_crontab(Config.AI_PROPOSAL_CRON)
-            except ValueError:
-                app.logger.warning(
-                    '[Scheduler] AI_PROPOSAL_CRON tidak valid ("%s") -- pipeline AI tidak dijadwalkan.',
-                    Config.AI_PROPOSAL_CRON,
-                )
-            else:
-                scheduler.add_job(
-                    'ai_rule_proposals',
-                    _run_ai_proposals,
-                    trigger=ai_trigger,
-                    replace_existing=True,
-                    misfire_grace_time=3600,
-                    coalesce=True,
-                )
-                any_job = True
-                app.logger.info('[Scheduler] Usulan rule AI dijadwalkan: %s', Config.AI_PROPOSAL_CRON)
-        else:
-            app.logger.info('[Scheduler] AI_PROPOSAL_ENABLED=False -- pipeline AI non-aktif.')
+        for job_id, func, cron_string, label in iter_enabled_jobs():
+            scheduler.add_job(
+                job_id,
+                func,
+                trigger=CronTrigger.from_crontab(cron_string),
+                replace_existing=True,
+                misfire_grace_time=3600,
+                coalesce=True,
+            )
+            any_job = True
+            app.logger.info('[Scheduler] %s dijadwalkan: %s', label, cron_string)
 
         if any_job:
             scheduler.start()

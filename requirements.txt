@@ -12,3 +12,9 @@ Flask-WTF==1.3.0
 APScheduler==3.10.4
 Flask-APScheduler==1.13.1
 boto3==1.34.151
+# WSGI production server (Phase G: container deployment). gunicorn is
+# chosen over waitress specifically because it can terminate TLS itself
+# via --certfile/--keyfile, which lets the app container serve HTTPS
+# directly with a self-signed certificate and removes the need for a
+# separate reverse-proxy container. See Dockerfile / deploy/README.md.
+gunicorn==22.0.0

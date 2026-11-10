@@ -1,0 +1,270 @@
+# ── LARAS — container deployment (Phase G) ─────────────────────────────
+#
+# THREE-CONTAINER DESIGN
+#   app        : HTTPS (gunicorn, self-signed TLS), SCHEDULER_ENABLED=False
+#   scheduler  : cron only, no HTTP, SCHEDULER_ENABLED=True
+#   mongo      : optional, behind profile `local-mongo`
+#   minio      : optional, behind profile `local-minio`
+#
+# Mongo and MinIO are FLEXIBLE: run them here, or point at external ones.
+# The profiles are what make that work, and `required: false` on the
+# depends_on entries is what stops compose from failing when the optional
+# service was deliberately left out.
+#
+# ── USAGE ──────────────────────────────────────────────────────────────
+#   All-internal (Mongo + MinIO as containers):
+#     docker compose --profile local-mongo --profile local-minio up -d --build
+#
+#   Fully external (point .env at your own Mongo/MinIO):
+#     docker compose up -d --build
+#
+#   Mongo internal, MinIO external:
+#     docker compose --profile local-mongo up -d --build
+#
+# ── FIRST-RUN BOOTSTRAP (one-shot, NOT automatic) ──────────────────────
+#   docker compose --profile local-mongo run --rm app python migrate.py
+#   docker compose --profile local-mongo run --rm app flask --app app:create_app create-user admin
+#   docker compose --profile local-mongo run --rm app flask --app app:create_app set-reviewer admin
+#
+#   These are deliberately manual. Running migrations or seeding users on
+#   every container start would hide failures in logs nobody reads, and
+#   init_db() already creates indexes idempotently. See README.md § 4.1.4.
+
+name: laras
+
+services:
+  # ── Web tier ─────────────────────────────────────────────────────────
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: laras:local
+    # gunicorn with TLS terminated INSIDE this container, using the
+    # self-signed cert mounted below. This is why there is no reverse
+    # proxy container: gunicorn can serve HTTPS itself.
+    #
+    # FAIL CLOSED ON A MISSING CERTIFICATE.
+    # An earlier revision fell back to plaintext HTTP here. That was a real
+    # defect: SESSION_COOKIE_SECURE=true stays set, so the browser would
+    # refuse to send the session cookie over HTTP and login would appear to
+    # "not stick" — the exact trap documented in config.py — while the
+    # container reported `healthy`. A missing cert is a deployment mistake,
+    # not a mode to run in, so the container now exits non-zero and says why.
+    #
+    # Escape hatch: set ALLOW_INSECURE_HTTP=true to run without TLS for
+    # local debugging. In that mode the cookie flag is forced off below so
+    # the cookie and the transport can never disagree.
+    command:
+      - /bin/sh
+      - -c
+      - |
+        if [ -f "$$TLS_CERT_FILE" ] && [ -f "$$TLS_KEY_FILE" ]; then
+          echo "[entrypoint] TLS aktif -- https://0.0.0.0:5000 (cert=$$TLS_CERT_FILE)"
+          exec gunicorn --bind 0.0.0.0:5000 \
+            --worker-class gthread --workers 1 --threads 8 \
+            --worker-tmp-dir /tmp/app \
+            --certfile "$$TLS_CERT_FILE" --keyfile "$$TLS_KEY_FILE" \
+            --access-logfile - --error-logfile - \
+            'app:create_app()'
+        elif [ "$$ALLOW_INSECURE_HTTP" = "true" ]; then
+          if [ "$$SESSION_COOKIE_SECURE" = "true" ]; then
+            echo "[entrypoint] FATAL: ALLOW_INSECURE_HTTP=true tapi" \
+                 "SESSION_COOKIE_SECURE=true. Cookie Secure di atas HTTP" \
+                 "membuat login tidak akan pernah tersimpan." >&2
+            echo "[entrypoint] Set SESSION_COOKIE_SECURE=false di .env." >&2
+            exit 1
+          fi
+          echo "[entrypoint] PERINGATAN: ALLOW_INSECURE_HTTP=true -- berjalan" \
+               "TANPA TLS di http://0.0.0.0:5000. Jangan pakai di produksi." >&2
+          exec gunicorn --bind 0.0.0.0:5000 \
+            --worker-class gthread --workers 1 --threads 8 \
+            --worker-tmp-dir /tmp/app \
+            --access-logfile - --error-logfile - \
+            'app:create_app()'
+        else
+          echo "[entrypoint] FATAL: sertifikat TLS tidak ditemukan" \
+               "($$TLS_CERT_FILE / $$TLS_KEY_FILE)." >&2
+          echo "[entrypoint] Jalankan 'deploy/generate-selfsigned.ps1' (Windows) atau" >&2
+          echo "[entrypoint] 'sh deploy/generate-selfsigned.sh' lalu" >&2
+          echo "[entrypoint] 'docker compose up -d --force-recreate app'." >&2
+          echo "[entrypoint] Untuk debugging lokal tanpa TLS: set ALLOW_INSECURE_HTTP=true." >&2
+          exit 1
+        fi
+    env_file:
+      - .env
+    environment:
+      # WEB MUST NOT RUN THE SCHEDULER. The dedicated `scheduler` service
+      # below owns the cron jobs; enabling it here too would double every
+      # backup / KEV sync / AI proposal. `environment` wins over
+      # `env_file`, so this override is authoritative even if the shared
+      # .env still has SCHEDULER_ENABLED=True from a dev setup.
+      SCHEDULER_ENABLED: "false"
+      # Flask debug mode must NEVER reach a container: DEBUG=True exposes
+      # full tracebacks to anyone who triggers an error, and the shared
+      # .env commonly carries DEBUG=True from host-side development. The
+      # same env-file-vs-environment precedence applies.
+      DEBUG: "false"
+      # Session cookie must be Secure whenever HTTPS is actually serving,
+      # or the browser refuses to send it and login appears to silently
+      # fail (see config.py). Default "true" matches the normal TLS mode.
+      #
+      # When ALLOW_INSECURE_HTTP=true the transport is plain HTTP, so a
+      # Secure cookie would make login impossible. Set BOTH variables
+      # together: the README documents that enabling the insecure escape
+      # hatch requires SESSION_COOKIE_SECURE=false in .env, and the
+      # entrypoint below enforces the pairing by refusing to start in a
+      # contradictory configuration.
+      SESSION_COOKIE_SECURE: "${SESSION_COOKIE_SECURE:-true}"
+      TLS_CERT_FILE: /certs/cert.pem
+      TLS_KEY_FILE: /certs/key.pem
+      ALLOW_INSECURE_HTTP: "${ALLOW_INSECURE_HTTP:-false}"
+    volumes:
+      # Read-only cert mount. deploy/certs/ is generated by the helper
+      # script and is gitignored — certificates never enter the image.
+      - ./deploy/certs:/certs:ro
+    ports:
+      - "${APP_HTTPS_PORT:-5000}:5000"
+    depends_on:
+      mongo:
+        condition: service_healthy
+        # KEY LINE: when the `local-mongo` profile is not active, the
+        # `mongo` service does not exist. required:false tells compose to
+        # skip this dependency instead of erroring out — this is what
+        # makes "external Mongo" a first-class option in a single file.
+        required: false
+      minio:
+        # service_healthy, not service_started: MinIO defines a healthcheck
+        # (`mc ready local`) and a backup job firing right after startup
+        # could otherwise hit a MinIO that is listening but not yet ready
+        # to accept bucket operations, producing a spurious failure.
+        condition: service_healthy
+        required: false
+    # The application writes nothing to disk. Making the root filesystem
+    # read-only is therefore free hardening, with /tmp on a tmpfs for the
+    # few things that genuinely need scratch space (gunicorn heartbeat,
+    # Python temp during multipart parsing).
+    read_only: true
+    tmpfs:
+      - /tmp/app:uid=10001,gid=10001,mode=0700
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+    networks:
+      - laras
+
+  # ── Scheduler tier ───────────────────────────────────────────────────
+  scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: laras:local
+    # SAME image, different entrypoint: a pure apscheduler
+    # BlockingScheduler with no Flask at all. See scheduler_runner.py for
+    # why this beats running create_app() and holding it open.
+    #
+    # No ports and no TLS: this container makes outbound calls only.
+    # Restart policy differs from the web tier because a crashed cron
+    # process should be retried, not left down.
+    #
+    # healthcheck MUST be disabled here. The image defines a HEALTHCHECK
+    # that probes https://127.0.0.1:5000/auth/login, which is correct for
+    # the web role but meaningless for a container that serves no HTTP at
+    # all — it would report `unhealthy` forever (ConnectionRefusedError on
+    # every interval) even while the scheduler is working perfectly.
+    # Liveness for this container is simply "the process is running":
+    # scheduler_runner.py blocks in BlockingScheduler.start(), so a crash
+    # exits the container and `restart: on-failure` brings it back.
+    command: ["python", "scheduler_runner.py"]
+    healthcheck:
+      disable: true
+    env_file:
+      - .env
+    environment:
+      # The one place the scheduler is ON. Flip the *_ENABLED flags
+      # (BACKUP_ENABLED / KEV_SYNC_ENABLED / AI_PROPOSAL_ENABLED) in .env
+      # to choose which jobs actually run.
+      SCHEDULER_ENABLED: "true"
+      # See the matching note in the `app` service: a debug-mode cron
+      # process would leak tracebacks through the notification channel.
+      DEBUG: "false"
+      TZ: "${TZ:-Asia/Jakarta}"
+    depends_on:
+      mongo:
+        condition: service_healthy
+        required: false
+    read_only: true
+    tmpfs:
+      - /tmp/app:uid=10001,gid=10001,mode=0700
+    security_opt:
+      - no-new-privileges:true
+    restart: on-failure
+    networks:
+      - laras
+
+  # ── MongoDB (optional) ───────────────────────────────────────────────
+  # Only starts under `--profile local-mongo`. Omit the profile to use an
+  # external MongoDB by pointing MONGO_URI in .env at it.
+  mongo:
+    image: mongo:7
+    profiles:
+      - local-mongo
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:-admin}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:-admin}
+    volumes:
+      # NAMED VOLUME, not a bind mount to a Windows path. Docker Desktop
+      # file-sharing over /d/... is slow and permission-fragile, and for
+      # a database it is a good way to corrupt data. This volume survives
+      # `docker compose down` and is only removed by `down -v`.
+      - mongo-data:/data/db
+    ports:
+      # Bound to 127.0.0.1 only: exposes the DB to tools running on the
+      # host (Compass/mongosh) WITHOUT putting it on the network. Never
+      # publish 27017 on 0.0.0.0 for a database that holds production
+      # Wazuh rules and the append-only audit history.
+      - "127.0.0.1:${MONGO_PORT:-27017}:27017"
+    healthcheck:
+      # mongosh is present in the official image; a probe using a bare
+      # TCP check would report healthy before the server accepts queries.
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+    networks:
+      - laras
+
+  # ── MinIO (optional) ─────────────────────────────────────────────────
+  # Only starts under `--profile local-minio`. Omit it to use external
+  # S3-compatible storage by setting S3_ENDPOINT_URL in .env.
+  minio:
+    image: minio/minio:latest
+    profiles:
+      - local-minio
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:-minioadmin}
+    volumes:
+      - minio-data:/data
+    ports:
+      - "127.0.0.1:${MINIO_PORT:-9000}:9000"
+      - "127.0.0.1:${MINIO_CONSOLE_PORT:-9001}:9001"
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+    networks:
+      - laras
+
+volumes:
+  mongo-data:
+  minio-data:
+
+networks:
+  laras:
+    driver: bridge

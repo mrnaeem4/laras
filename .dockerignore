@@ -1,0 +1,48 @@
+# Keep the build context small and, more importantly, keep secrets and
+# host-specific artefacts OUT of the image. .env holds SECRET_KEY and the
+# Wazuh/S3/LLM credentials — it must never be baked in. compose injects
+# it at runtime via env_file instead.
+
+# ── Secrets & local environment ────────────────────────────────────────
+.env
+.env.*
+!.env.docker.example
+deploy/certs/
+*.pem
+*.key
+*.crt
+
+# ── Version control & editor noise ─────────────────────────────────────
+.git
+.gitignore
+.github
+.vscode
+.kilo
+*.code-workspace
+
+# ── Python artefacts ───────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ── Container artefacts ────────────────────────────────────────────────
+Dockerfile
+.dockerignore
+docker-compose*.yml
+
+# ── Local data / captured artefacts ────────────────────────────────────
+Wazuh Configuration/
+index.html
+dynamic_forms.js
+AI_INSTRUCTION.md
+
+# ── Logs & OS junk ─────────────────────────────────────────────────────
+*.log
+.DS_Store
+Thumbs.db
