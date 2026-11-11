@@ -1,13 +1,13 @@
 # LARAS — Wazuh Rule & Decoder Management
 
-**LARAS** (*Selaras*) adalah aplikasi web internal untuk tim SOC yang dipakai membangun, memvalidasi, menguji, mem-versioning, dan mem-promosikan **Wazuh Rules & Decoders** — dari draft di komputer analis sampai aktif di Wazuh Manager **Prod**, tanpa menulis XML secara manual.
+**LARAS** (*Selaras*) adalah aplikasi web internal untuk tim SOC. Analis dapat menggunakannya untuk membuat, memvalidasi, menguji, mengelola versi, dan mempromosikan **Wazuh Rules & Decoders**. Prosesnya dimulai dari draft di komputer analis hingga rule aktif di Wazuh Manager **Prod**, tanpa perlu menulis XML secara manual.
 
 Filosofi utama:
 
-- **Human-in-the-loop.** Rule AI tetap masuk sebagai draft dan wajib lewat gate yang sama dengan rule buatan manusia.
-- **4-eyes.** Perubahan ke Prod harus disetujui user lain yang berperan sebagai reviewer.
-- **Tercatat.** Setiap perubahan punya history append-only (siapa/kapan/apa) dan bisa di-rollback.
-- **Teruji sebelum Prod.** Alur wajib: Draft → Deploy Dev → Logtest → Passed → Promote Prod.
+- **Human-in-the-loop.** Rule yang dibuat AI disimpan sebagai draft. Sebelum digunakan, rule tersebut harus melewati proses yang sama dengan rule buatan analis.
+- **4-eyes.** Setiap perubahan ke Prod memerlukan persetujuan reviewer yang berbeda dari pengusul.
+- **Tercatat.** Sistem menyimpan riwayat perubahan secara append-only, termasuk siapa yang melakukan perubahan, kapan perubahan dibuat, dan apa yang berubah. Versi sebelumnya dapat dipulihkan melalui rollback.
+- **Diuji sebelum masuk Prod.** Setiap rule mengikuti alur Draft → Deploy Dev → Logtest → Passed → Promote Prod.
 
 ---
 
@@ -29,6 +29,7 @@ Filosofi utama:
 14. [Troubleshooting](#14-troubleshooting)
 15. [Checklist Go-Live](#15-checklist-go-live)
 16. [Catatan Keamanan Container](#16-catatan-keamanan-container)
+17. [Sponsor](#17-sponsor)
 
 ---
 
@@ -131,7 +132,7 @@ LARAS berjalan sebagai **satu image** yang dipakai oleh **dua peran**. MongoDB d
 | **Staging** | container | eksternal | `docker compose --profile local-mongo up -d --build` |
 | **Produksi** | eksternal | eksternal | `docker compose up -d --build` |
 
-Pada produksi, MongoDB dan MinIO **sebaiknya eksternal**: punya backup, replika, dan lifecycle sendiri. Menjalankan database produksi di dalam compose yang sama membuat `docker compose down -v` (satu perintah salah) berpotensi menghapus rules dan audit trail.
+Untuk produksi, gunakan MongoDB dan MinIO eksternal agar backup, replikasi, dan siklus pemeliharaannya dapat dikelola secara terpisah. Jika database produksi dijalankan dalam Compose yang sama, perintah `docker compose down -v` dapat menghapus rules dan audit trail ketika dijalankan tanpa sengaja.
 
 Nilai `.env` per environment:
 
@@ -148,7 +149,7 @@ Nilai `.env` per environment:
 
 #### 4.1.3 Kredensial default — WAJIB diganti
 
-Template `.env.docker.example` memakai kredensial contoh yang **diketahui publik**. Semuanya aman hanya untuk uji di mesin sendiri.
+Template `.env.docker.example` berisi kredensial contoh yang sudah diketahui publik. Gunakan nilai tersebut hanya untuk pengujian lokal, lalu ganti sebelum aplikasi dipakai di lingkungan lain.
 
 | Variabel | Default template | Dipakai oleh | Risiko bila dibiarkan |
 |----------|------------------|--------------|------------------------|
@@ -157,7 +158,7 @@ Template `.env.docker.example` memakai kredensial contoh yang **diketahui publik
 | `SECRET_KEY` | `ganti-dengan-string-acak-yang-kuat` | session Flask | Pemalsuan session bila nilainya diketahui |
 | `TELEGRAM_BOT_TOKEN` / `LLM_API_KEY` / `WAZUH_*_API_PASSWORD` | kosong | layanan eksternal | Tidak berbahaya bila kosong; jangan pakai nilai contoh |
 
-Aturan praktis:
+Sebelum menjalankan aplikasi, periksa hal-hal berikut:
 
 1. **`admin/admin` → ganti password kuat**, lalu **samakan** dengan password di `MONGO_URI`. Keduanya harus identik — bila tidak, aplikasi gagal konek (gejala: `MongoDB tidak tersedia` / login 503).
 2. **`minioadmin/minioadmin` → ganti**, karena pada profile `local-minio` kedua nilai itu juga menjadi kredensial root MinIO.
@@ -187,7 +188,7 @@ copy .env.docker.example .env
 
 Yang **wajib** diubah: `SECRET_KEY`, `WAZUH_DEV_API_URL`/`WAZUH_PROD_API_URL`, kredensial Mongo/MinIO (lihat 4.1.3), dan `TZ`.
 
-> **Jebakan hostname.** Di dalam container, `localhost` berarti container itu sendiri.
+> **Perhatikan hostname.** Dari dalam container, `localhost` mengarah ke container tersebut, bukan ke host atau container lain.
 > - Wazuh di host yang sama → `host.docker.internal`
 > - **MongoDB yang berjalan di host** → `mongodb://host.docker.internal:27017/`
 > - Mongo/MinIO sebagai container → nama service (`mongo`, `minio`)
@@ -207,7 +208,7 @@ powershell -ExecutionPolicy Bypass -File deploy\generate-selfsigned.ps1
 sh deploy/generate-selfsigned.sh
 ```
 
-Menghasilkan `deploy/certs/cert.pem` + `deploy/certs/key.pem`, dengan SAN `localhost` + seluruh IP lokal. Script menulis ke file sementara, **memverifikasi key dan cert berpasangan**, lalu mempublikasikan secara atomik — bila gagal, tidak ada file yang ditinggalkan.
+Script menghasilkan `deploy/certs/cert.pem` dan `deploy/certs/key.pem`. Sertifikat mencakup SAN `localhost` serta seluruh IP lokal. File dibuat sementara, pasangan key dan certificate diverifikasi, lalu dipindahkan ke lokasi tujuan secara atomik. Jika proses gagal, file sertifikat tidak dipublikasikan.
 
 Bila IP LAN berubah, regenerasi lalu `docker compose up -d --force-recreate app`.
 
@@ -236,7 +237,7 @@ docker compose --profile local-mongo run --rm app flask --app app:create_app set
 
 Hilangkan `--profile local-mongo` bila memakai Mongo eksternal.
 
-> `create-user` meminta password lewat prompt interaktif (`click.password_option`) sehingga password tidak masuk shell history. **Jalankan langsung di terminal**, jangan lewat pipeline.
+> Perintah `create-user` meminta password melalui prompt interaktif (`click.password_option`). Dengan cara ini, password tidak tersimpan di shell history. Jalankan perintah langsung dari terminal, bukan melalui pipeline.
 
 **5. Akses aplikasi**
 
@@ -244,11 +245,11 @@ Hilangkan `--profile local-mongo` bila memakai Mongo eksternal.
 https://localhost:5000
 ```
 
-Browser akan memperingatkan sertifikat self-signed — klik **Advanced → Proceed**. Peringatan ini normal dan hanya hilang bila `cert.pem` diimpor ke trust store klien (langkah manual per mesin).
+Browser akan menampilkan peringatan karena sertifikat yang digunakan bersifat self-signed. Untuk melanjutkan, klik **Advanced → Proceed**. Peringatan tersebut baru hilang setelah `cert.pem` diimpor ke trust store pada setiap perangkat klien.
 
 #### 4.1.5 Verifikasi pasca-deploy
 
-Jangan tandai deploy selesai sebelum semua lulus.
+Anggap deployment selesai setelah seluruh pemeriksaan berikut berhasil.
 
 ```powershell
 docker compose ps
@@ -271,7 +272,7 @@ Cek aktivitas cron (bila job diaktifkan): `docker compose logs -f scheduler` —
 
 #### 4.1.6 Mode tanpa TLS (HANYA debugging lokal)
 
-Default: `app` menolak start tanpa sertifikat. Untuk debugging lokal tanpa membuat sertifikat, ada escape hatch eksplisit. **Jangan dipakai di produksi** (trafik plaintext).
+Secara default, container `app` tidak akan berjalan jika sertifikat tidak tersedia. Untuk debugging lokal, Anda dapat mengaktifkan opsi HTTP tanpa TLS berikut. **Jangan gunakan opsi ini di produksi**, karena trafik akan dikirim tanpa enkripsi.
 
 ```dotenv
 ALLOW_INSECURE_HTTP=true
@@ -435,7 +436,7 @@ Perbedaan penting: pada container, `localhost` di `MONGO_URI`/`S3_ENDPOINT_URL`/
 
 ## 6. Menjalankan Aplikasi
 
-Bagian ini untuk **jalur manual** (tanpa Docker). Untuk Docker lihat [4.1](#41-jalur-docker-direkomendasikan).
+Gunakan langkah berikut jika Anda menjalankan aplikasi langsung di host tanpa Docker. Untuk instalasi Docker, lihat [4.1](#41-jalur-docker-direkomendasikan).
 
 ### 6.1 Development
 
@@ -473,7 +474,7 @@ app.run(host='0.0.0.0', port=5000, debug=app.config['DEBUG'])
 
 ## 7. Akun & CLI
 
-Tidak ada halaman registrasi mandiri. Akun dibuat lewat CLI.
+Aplikasi tidak menyediakan registrasi akun melalui halaman web. Admin membuat akun menggunakan CLI.
 
 **Di host:**
 
@@ -518,7 +519,7 @@ Login di `/auth/login`.
 
 ## 9. API Endpoint
 
-Semua endpoint di bawah **wajib login**. Kirim header `Content-Type: application/json` dan sertakan CSRF token sesuai kebutuhan.
+Pengguna harus login sebelum mengakses endpoint berikut. Untuk request JSON, kirim header `Content-Type: application/json` dan sertakan CSRF token jika diperlukan.
 
 ### Autentikasi Wazuh (debug)
 
@@ -639,9 +640,9 @@ Semua endpoint di bawah **wajib login**. Kirim header `Content-Type: application
 
 ## 10. Backup, Scheduler & Notifikasi
 
-- **Backup** mengekspor koleksi terpilih ke JSON gzip dan mengunggahnya ke S3/MinIO (via `boto3`). Tersedia on-demand (`POST /api/backup`) dan terjadwal (`BACKUP_CRON`). Backup menulis ke S3/MinIO, **bukan** ke disk container (container `app` read-only).
-- **Restore** bersifat destruktif: koleksi terpilih di-drop lalu di-insert ulang dari isi backup, dengan konfirmasi ganda di UI. Restore menolak jalan bila `BACKUP_ENABLED=false`.
-- **Scheduler** (APScheduler) menjalankan lima job independen, masing-masing punya flag sendiri:
+- **Backup** mengekspor koleksi yang dipilih ke JSON terkompresi gzip, kemudian mengunggahnya ke S3/MinIO menggunakan `boto3`. Backup dapat dijalankan secara manual (`POST /api/backup`) atau mengikuti jadwal `BACKUP_CRON`. File backup disimpan di S3/MinIO, bukan di filesystem container `app` yang bersifat read-only.
+- **Restore** mengganti isi koleksi yang dipilih: sistem menghapus koleksi tersebut, lalu memasukkan data dari backup. UI meminta konfirmasi dua kali sebelum proses dijalankan. Restore tidak dapat dilakukan jika `BACKUP_ENABLED=false`.
+- **Scheduler** menggunakan APScheduler untuk menjalankan lima job secara terpisah. Setiap job memiliki flag konfigurasi sendiri:
   1. Backup otomatis — `BACKUP_ENABLED`
   2. Sync katalog KEV — `KEV_SYNC_ENABLED`
   3. Usulan rule AI — `AI_PROPOSAL_ENABLED`
@@ -660,9 +661,9 @@ docker compose exec app python -c "from database import get_db; from services.ba
 docker compose exec app python -c "from services.backup_utils import list_backups; [print(b) for b in list_backups()]"
 ```
 
-> **Kegagalan S3.** `create_backup` mengembalikan dict `{'success': False, ...}` untuk kasus yang ditangani (mis. `BACKUP_ENABLED=false`, kredensial kosong). Namun bila endpoint S3/MinIO **tidak bisa dijangkau**, botocore melempar `EndpointConnectionError` yang **tidak ditangkap** — perintah akan menampilkan traceback, bukan dict. Ini **bukan** berarti backup jalan: pastikan container MinIO hidup (`docker compose ps minio`) atau endpoint eksternal benar, dan `S3_ENDPOINT_URL` memakai `minio:9000` (nama service), bukan `localhost:9000`. Job terjadwal punya gejala sama.
+> **Jika koneksi S3 gagal.** Untuk kondisi yang sudah ditangani, `create_backup` mengembalikan dict seperti `{'success': False, ...}`. Contohnya ketika `BACKUP_ENABLED=false` atau kredensial belum diisi. Jika endpoint S3/MinIO tidak dapat dijangkau, botocore akan melempar `EndpointConnectionError` yang saat ini tidak ditangkap. Akibatnya, terminal menampilkan traceback. Kondisi ini berarti backup gagal. Periksa apakah container MinIO berjalan (`docker compose ps minio`), pastikan endpoint eksternal dapat dijangkau, dan gunakan `minio:9000` pada `S3_ENDPOINT_URL` jika MinIO berjalan sebagai service Compose. Jangan gunakan `localhost:9000` dari dalam container. Job terjadwal dapat mengalami masalah yang sama.
 
-**Uji restore (wajib sebelum go-live).** `restore_backup` **DESTRUKTIF** — koleksi terpilih di-drop lalu di-insert ulang. Karena itu:
+**Uji restore sebelum go-live.** Proses `restore_backup` bersifat **destruktif**: sistem menghapus koleksi yang dipilih, lalu mengisinya kembali dari backup. Ikuti ketentuan berikut saat melakukan pengujian:
 
 - **Jangan pernah** menguji restore ke database produksi.
 - Syarat: `BACKUP_ENABLED=true`.
@@ -673,32 +674,32 @@ docker compose exec -e MONGO_URI="mongodb://<user>:<pass>@<host-uji>:27017/?auth
   python -c "from services.backup_utils import restore_backup; print(restore_backup('<s3_key>'))"
 ```
 
-Backup yang belum pernah diuji restore belum bisa disebut backup.
+Backup perlu diuji melalui proses restore agar dapat diandalkan saat pemulihan data.
 
 ---
 
 ## 11. Threat Intelligence (KEV) & AI Rule Proposal
 
-- **Sumber feed:** API CSIRT Tangerang Kota (`/api/advisories`) — JSON bergaya KEV dengan filter `vendor`, `product`, `cve`, `severity`, `dateFrom`, `dateTo`. Karena tidak ada header CORS, feed **wajib dipanggil server-side**.
-- **Sync katalog** (`kev_catalog`) menyimpan pasangan vendor/product unik untuk mengisi dropdown form Tech Stack. Sync bersifat idempotent — hanya menyisipkan yang belum ada.
-- **Pipeline AI** (`services/ai_utils.py`):
-  1. Ambil advisory KEV.
-  2. Filter relevansi terhadap `tech_stack`.
-  3. Skor prioritas deterministik.
-  4. Minta LLM menyusun draft rule.
-  5. Simpan sebagai usulan `pending` di koleksi `ai_proposals`.
+- **Sumber feed:** API CSIRT Tangerang Kota (`/api/advisories`). Feed mengembalikan JSON bergaya KEV dan mendukung filter `vendor`, `product`, `cve`, `severity`, `dateFrom`, serta `dateTo`. Karena feed tidak menyediakan header CORS, aplikasi harus mengambil datanya dari sisi server.
+- **Sinkronisasi katalog** (`kev_catalog`) menyimpan pasangan vendor dan product yang unik untuk mengisi pilihan pada form Tech Stack. Proses ini idempotent, sehingga hanya data yang belum tersimpan yang akan ditambahkan.
+- **Pipeline AI** (`services/ai_utils.py`) menjalankan langkah berikut:
+  1. Mengambil advisory KEV.
+  2. Memeriksa kecocokannya dengan data `tech_stack`.
+  3. Menghitung skor prioritas secara deterministik.
+  4. Meminta LLM menyusun draft rule.
+  5. Menyimpan hasilnya sebagai usulan berstatus `pending` di koleksi `ai_proposals`.
 
-**Jaminan keamanan:** AI **tidak pernah** menulis langsung ke `rules`/`decoders`, tidak push ke Wazuh, dan tidak melewati gate. Semua usulan menunggu keputusan manusia di halaman `/ai-proposals` (bisa di-prefill ke Rule Builder, tapi tidak auto-save). Teks feed diperlakukan sebagai data (anti prompt-injection).
+**Batas akses AI:** AI tidak menulis langsung ke koleksi `rules` atau `decoders`, tidak mengirim rule ke Wazuh, dan tidak dapat melewati proses approval. Setiap usulan harus ditinjau oleh manusia melalui halaman `/ai-proposals`. Data usulan dapat digunakan untuk mengisi Rule Builder, tetapi tidak disimpan otomatis. Konten dari feed diperlakukan sebagai data yang tidak tepercaya untuk mencegah prompt injection.
 
 ### 11.1 Exploit-DB enrichment
 
-Sebelum LLM dipanggil, CVE dicek ke **Exploit-DB**. Tujuannya menyelaraskan rule dengan cara exploit benar-benar bekerja (path, parameter, header, status), bukan hanya dari deskripsi CVE.
+Sebelum meminta LLM menyusun rule, aplikasi mencari CVE terkait di **Exploit-DB**. Informasi exploit dapat membantu penyusunan rule berdasarkan detail teknis seperti path, parameter, header, dan status respons, selain deskripsi CVE.
 
 - **Pencarian** memakai endpoint DataTables `GET /search?cve=<tanpa prefix CVE->&columns[...]...`. Parameter `columns[...]` wajib lengkap; tanpa itu server membalas HTTP 500. Kode diambil dari `GET /raw/<id>` (`text/plain`), **bukan** `/download/<id>`.
-- **Kode exploit = teks inert.** Modul tidak pernah mengeksekusi, tidak memakai `eval`/`exec`/`subprocess`, dan tidak menulis file. Kode hanya di-decode, dibuang karakter kontrolnya, dipotong sampai batas excerpt yang aman, lalu dikirim ke prompt di dalam blok yang ditandai *untrusted + never execute*. UI merendernya sebagai teks ter-escape.
-- **Soft-fail.** Kegagalan lookup tidak pernah menggagalkan usulan. Hasil disimpan di `exploitdb_cache` dengan status `retry_pending` + `next_retry_at`; job `exploitdb_retry` (tiap menit) memproses antrean itu — retry pertama **5 menit**, lalu 15m → 60m → 6h, maksimum `EXPLOITDB_MAX_ATTEMPTS`.
-- **Anti-banjir.** Semua request (search, `/raw`, retry, refresh) lewat rate limiter global di `exploitdb_state`: jumlah request bersamaan dibatasi, jarak antar-request dijaga, dan circuit breaker terbuka setelah beberapa kegagalan berturut-turut. Jika slot tidak tersedia, lookup **ditunda** ke antrean, bukan dipaksa.
-- **Exploit baru setelah proposal dibuat.** `exploitdb_refresh` (opsional) menandai proposal `needs_review` + `new_since_proposal`. **Draft rule tidak diubah otomatis** — reviewer memutuskan.
+- **Kode exploit diperlakukan sebagai teks.** Modul tidak menjalankan kode tersebut, tidak menggunakan `eval`, `exec`, atau `subprocess`, dan tidak menulisnya ke file. Kode hanya di-decode, dibersihkan dari karakter kontrol, lalu dipotong sesuai batas excerpt. Setelah itu, isinya dikirim ke prompt dalam blok bertanda *untrusted + never execute*. UI menampilkannya sebagai teks yang sudah di-escape.
+- **Soft-fail.** Jika lookup gagal, proses pembuatan usulan tetap berjalan. Hasil lookup disimpan di `exploitdb_cache` dengan status `retry_pending` dan `next_retry_at`. Job `exploitdb_retry` memeriksa antrean setiap menit. Retry pertama dilakukan setelah **5 menit**, kemudian 15 menit, 60 menit, dan 6 jam, hingga mencapai batas `EXPLOITDB_MAX_ATTEMPTS`.
+- **Pembatasan request.** Semua request ke Exploit-DB, termasuk search, `/raw`, retry, dan refresh, melewati rate limiter global di `exploitdb_state`. Sistem membatasi jumlah request yang berjalan bersamaan dan mengatur jeda antar-request. Circuit breaker akan terbuka setelah terjadi beberapa kegagalan berurutan. Jika slot request belum tersedia, lookup dimasukkan ke antrean untuk diproses kemudian.
+- **Exploit baru setelah proposal dibuat.** Job opsional `exploitdb_refresh` menandai proposal dengan status `needs_review` dan flag `new_since_proposal` jika menemukan exploit baru. Draft rule tetap seperti semula sampai reviewer memutuskan tindakan berikutnya.
 - Endpoint: `GET /api/exploitdb/lookup?cve=`, `GET /api/exploitdb/status`, `POST /api/ai/proposals/<id>/recheck-exploits`.
 
 Kontrak bentuk XML Wazuh sebagai satu sumber kebenaran ada di `services/wazuh_contract.py`, dipakai bersama oleh prompt LLM, normalizer, dan XML generator.
@@ -798,7 +799,7 @@ docker compose down -v
 
 ### 13.2 Upgrade
 
-**Selalu backup dulu** bila upgrade menyentuh data.
+Buat backup sebelum menjalankan upgrade yang dapat mengubah data.
 
 ```powershell
 # 1. Backup manual (bila BACKUP_ENABLED=true) — atau lewat UI /api/backup
@@ -836,11 +837,11 @@ docker compose up -d app scheduler
 
 **Data:** restore dari backup terakhir yang diketahui baik (lihat 11). **Destruktif** — koleksi terpilih di-drop. Setelah restore, jalankan migrasi ulang bila perlu.
 
-**Yang TIDAK bisa di-rollback:** koleksi audit bersifat **append-only** (`rule_history`, `decoder_history`, `manager_actions` — update/delete melempar `RuntimeError`). Restore adalah satu-satunya jalur mengganti isinya, dan itu mengganti seluruh koleksi. Ini konsekuensi desain yang disengaja untuk integritas audit trail.
+**Batasan rollback data:** koleksi audit `rule_history`, `decoder_history`, dan `manager_actions` bersifat append-only. Operasi update atau delete akan melempar `RuntimeError`. Untuk mengganti isinya, satu-satunya cara adalah restore, yang akan mengganti seluruh koleksi. Pembatasan ini diterapkan untuk menjaga integritas audit trail.
 
 ### 13.4 Debug di dalam container (root filesystem read-only)
 
-Container `app` dan `scheduler` berjalan `read_only: true` — hanya `/tmp/app` (tmpfs) yang bisa ditulis.
+Container `app` dan `scheduler` menggunakan `read_only: true`. Direktori yang dapat ditulis hanya `/tmp/app`, yang dipasang sebagai tmpfs.
 
 ```powershell
 # Menjalankan script dari stdin — tidak menulis apa pun ke disk
@@ -857,7 +858,7 @@ docker compose run --rm -v "${PWD}/skrip.py:/app/skrip.py:ro" app python skrip.p
 
 ### 13.5 Rotasi log
 
-Driver default (`json-file`) tidak berotasi. Untuk deployment jangka panjang, tambahkan ke service `app` dan `scheduler` di `docker-compose.yml`:
+Driver log bawaan `json-file` tidak melakukan rotasi. Untuk deployment jangka panjang, tambahkan konfigurasi berikut pada service `app` dan `scheduler` di `docker-compose.yml`:
 
 ```yaml
     logging:
@@ -935,7 +936,7 @@ MongoDB tidak terjangkau saat startup. App sengaja tetap boot tanpa MongoDB; res
 5. Pastikan port `55000` bisa diakses dari host aplikasi.
 
 **Log Tester tidak akurat / PASS-FAIL menyesatkan**
-`wazuh-logtest` menguji terhadap ruleset yang **sedang aktif di Wazuh Dev** (hasil push + reload terakhir), bukan draft di wizard. Jalankan "Deploy & Run All" agar rule tersimpan, ter-deploy ke Dev, lalu diuji — hasil baru dipersist bila versinya terkini.
+`wazuh-logtest` menggunakan ruleset yang sedang aktif di Wazuh Dev, yaitu hasil push dan reload terakhir. Tool ini tidak menguji draft yang masih berada di wizard. Pilih "Deploy & Run All" untuk menyimpan rule, mengirimnya ke Dev, lalu menjalankan pengujian. Hasil pengujian hanya disimpan jika masih sesuai dengan versi rule saat ini.
 
 **Job terjadwal tidak jalan**
 Pastikan cron memakai **5 field**. Nilai 6-field ditolak `CronTrigger.from_crontab()` sehingga job tidak pernah didaftarkan. Cek juga flag `*_ENABLED` terkait.
@@ -970,7 +971,7 @@ Terjadi di deployment multi-worker. Set `SCHEDULER_ENABLED=False` di semua worke
 
 ## 15. Checklist Go-Live
 
-Untuk deployment produksi, semua harus tercentang:
+Selesaikan seluruh pemeriksaan berikut sebelum menggunakan deployment produksi:
 
 - [ ] `SECRET_KEY` diganti dari default dan **unik** untuk environment ini
 - [ ] **Kredensial default diganti** — `MONGO_ROOT_PASSWORD` bukan `admin`, `S3_ACCESS_KEY`/`S3_SECRET_KEY` bukan `minioadmin` ([4.1.3](#413-kredensial-default--wajib-diganti))
@@ -993,10 +994,43 @@ Untuk deployment produksi, semua harus tercentang:
 
 ## 16. Catatan Keamanan Container
 
-- Image berjalan sebagai **non-root** (`appuser`, uid 10001), `read_only: true` dengan `tmpfs` untuk `/tmp/app`, dan `no-new-privileges`.
+- Container berjalan sebagai user non-root (`appuser`, uid 10001). Filesystem dibuat read-only, dengan tmpfs pada `/tmp/app` dan opsi `no-new-privileges` aktif.
 - `.env` tidak pernah masuk image (`.dockerignore`), hanya di-inject saat runtime.
 - Port Mongo/MinIO di-bind ke `127.0.0.1` saja — tidak terekspos ke jaringan.
 - `app` **fail closed** tanpa sertifikat, dan menolak konfigurasi cookie/TLS yang kontradiktif. Tidak ada jalur "diam-diam turun ke plaintext".
 - Healthcheck memeriksa **mode yang benar-benar diharapkan** (HTTPS bila TLS, HTTP bila insecure) sehingga container yang menyajikan plaintext karena cert rusak ditandai `unhealthy`.
 - **Kredensial default template (`admin`/`admin`, `minioadmin`/`minioadmin`) bersifat publik** — lihat [4.1.3](#413-kredensial-default--wajib-diganti).
 - Sertifikat self-signed **bukan** keamanan produksi. Bila nanti dipasang CA internal atau sertifikat resmi, cukup ganti isi `deploy/certs/` dan restart — kode tidak perlu berubah. `ProxyFix` sudah terpasang bila TLS dipindahkan ke reverse proxy.
+
+---
+
+## 17. Sponsor
+
+LARAS didukung oleh:
+
+<table>
+  <tr>
+    <td align="center" width="220">
+      <a href="https://kiyararouter.web.id/">
+        <img src="https://kiyararouter.web.id/logo_dark.png" alt="Kiyara Router" width="180">
+      </a>
+    </td>
+    <td>
+      <strong>Kiyara Router</strong> (<a href="https://kiyararouter.web.id/">kiyararouter.web.id</a>)<br>
+      Router model LLM OpenAI-compatible. Dipakai sebagai provider untuk pipeline
+      usulan draft rule AI (<code>LLM_PROVIDER_URL</code>).
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="220">
+      <a href="https://csirt.tangerangkota.go.id/">
+        <img src="https://assets1-api.tangerangkota.go.id/csirt-new/settings/2026/06/csirt-logo-dark.png" alt="CSIRT Tangerang Kota" width="180">
+      </a>
+    </td>
+    <td>
+      <strong>TangerangKota-CSIRT</strong> (<a href="https://csirt.tangerangkota.go.id/">csirt.tangerangkota.go.id</a>)<br>
+      Penyedia feed advisory KEV (vendor/product &amp; CVE) yang menjadi sumber
+      katalog tech stack dan bahan usulan rule AI.
+    </td>
+  </tr>
+</table>
