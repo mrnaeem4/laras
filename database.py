@@ -280,6 +280,26 @@ def _ensure_indexes(db) -> None:
         except Exception as exc:  # noqa: BLE001 -- migrasi best-effort
             logger.warning('[MongoDB] Gagal drop index ai_proposals lama: %s', exc)
 
+        # ── exploitdb_cache / exploitdb_state (Phase F: exploit enrichment) ─
+        # Satu dokumen per CVE. `status` + `next_retry_at` adalah antrean
+        # retry persisten (bukan sleep/date-job APScheduler, yang hilang saat
+        # container restart). Lihat services/exploitdb_utils.py.
+        db.exploitdb_cache.create_index(
+            [('cve_id', ASCENDING)],
+            unique=True,
+            name='idx_exploitdb_cache_cve_unique',
+        )
+        db.exploitdb_cache.create_index(
+            [('status', ASCENDING), ('next_retry_at', ASCENDING)],
+            name='idx_exploitdb_cache_retry',
+        )
+        db.exploitdb_cache.create_index(
+            [('fetched_at', ASCENDING)],
+            name='idx_exploitdb_cache_fetched_at',
+        )
+        # Singleton rate limiter / circuit breaker (satu dokumen _id='global').
+        # Tidak perlu index tambahan.
+
         logger.info('[MongoDB] Indexes verified.')
     except errors.OperationFailure as exc:
         logger.warning('[MongoDB] Index creation warning: %s', exc)
@@ -440,6 +460,22 @@ def get_ai_proposals_collection():
     jejak keputusan tetap utuh."""
     db = get_db()
     return NoDeleteCollection(db.ai_proposals) if db is not None else None
+
+
+def get_exploitdb_cache_collection():
+    """Return the `exploitdb_cache` collection (Phase F: per-CVE Exploit-DB
+    lookup results + persistent retry queue), or None if DB is unavailable.
+    See services/exploitdb_utils.py."""
+    db = get_db()
+    return db.exploitdb_cache if db is not None else None
+
+
+def get_exploitdb_state_collection():
+    """Return the `exploitdb_state` collection (singleton rate limiter +
+    circuit breaker shared by the web and scheduler processes), or None if
+    DB is unavailable. See services/exploitdb_utils.py."""
+    db = get_db()
+    return db.exploitdb_state if db is not None else None
 
 
 # ── Phase C migration: single-manager sync fields -> per-env sync_state ──

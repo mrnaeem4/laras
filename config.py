@@ -165,6 +165,101 @@ class Config:
     # token + hindari banjir draft sekaligus).
     AI_PROPOSAL_MAX_PER_RUN = int(os.environ.get('AI_PROPOSAL_MAX_PER_RUN', '10'))
 
+    # ── Exploit-DB (Phase F: exploit enrichment) ──────────────────────────
+    # Setiap advisory CVE yang akan diusulkan dicek ke Exploit-DB. Hasilnya
+    # dipakai sebagai KONTEKS TAMBAHAN untuk LLM (bukan auto-deploy): hanya
+    # metadata exploit + potongan kode yang diperlakukan sebagai teks inert.
+    #
+    # Endpoint pencarian Exploit-DB adalah endpoint DataTables: parameter
+    # `columns[...]` WAJIB lengkap, kalau tidak server membalas HTTP 500.
+    # CVE dikirim TANPA prefix "CVE-" (mis. cve=2026-109618).
+    #
+    # Kode exploit diambil dari /raw/<id> (text/plain), BUKAN /download/<id>
+    # (attachment biner). Modul ini tidak pernah mengeksekusi kode tersebut
+    # dan tidak pernah menuliskannya ke disk.
+    EXPLOITDB_ENABLED = os.environ.get('EXPLOITDB_ENABLED', 'False').lower() == 'true'
+    EXPLOITDB_SEARCH_URL = os.environ.get(
+        'EXPLOITDB_SEARCH_URL', 'https://www.exploit-db.com/search',
+    )
+    EXPLOITDB_RAW_URL = os.environ.get(
+        'EXPLOITDB_RAW_URL', 'https://www.exploit-db.com/raw/{edb_id}',
+    )
+    EXPLOITDB_USER_AGENT = os.environ.get(
+        'EXPLOITDB_USER_AGENT',
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+        '(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+    )
+    EXPLOITDB_HTTP_TIMEOUT = int(os.environ.get('EXPLOITDB_HTTP_TIMEOUT', '30'))
+    EXPLOITDB_VERIFY_CERT = os.environ.get('EXPLOITDB_VERIFY_CERT', 'True').lower() == 'true'
+    EXPLOITDB_PAGE_SIZE = int(os.environ.get('EXPLOITDB_PAGE_SIZE', '15'))
+    # Batas jumlah match yang disimpan / dikirim ke LLM.
+    EXPLOITDB_MAX_RESULTS = int(os.environ.get('EXPLOITDB_MAX_RESULTS', '5'))
+    # Berapa exploit teratas yang kode sumbernya ikut diambil (paling mahal:
+    # satu request HTTP per exploit). 0 = metadata saja.
+    EXPLOITDB_MAX_CODE_FETCH = int(os.environ.get('EXPLOITDB_MAX_CODE_FETCH', '2'))
+    # Batas karakter potongan kode yang disimpan + dikirim ke LLM.
+    EXPLOITDB_MAX_CODE_CHARS = int(os.environ.get('EXPLOITDB_MAX_CODE_CHARS', '3000'))
+    # Batas byte yang dibaca dari /raw/<id> sebelum di-decode (anti response
+    # raksasa). Potongan di atas MAX_CODE_CHARS tetap di-truncate.
+    EXPLOITDB_MAX_RAW_BYTES = int(os.environ.get('EXPLOITDB_MAX_RAW_BYTES', '65536'))
+
+    # Cache per CVE: hasil "ada exploit" relatif stabil (7 hari), hasil
+    # "tidak ada exploit" dicek ulang lebih sering (24 jam) karena exploit
+    # bisa terbit belakangan.
+    EXPLOITDB_CACHE_TTL_HIT_HOURS = int(os.environ.get('EXPLOITDB_CACHE_TTL_HIT_HOURS', '168'))
+    EXPLOITDB_CACHE_TTL_MISS_HOURS = int(os.environ.get('EXPLOITDB_CACHE_TTL_MISS_HOURS', '24'))
+
+    # Retry queue (persisten di MongoDB, bukan sleep/date-job APScheduler).
+    # Backoff percobaan ke-1 sengaja 5 menit sesuai permintaan.
+    EXPLOITDB_MAX_ATTEMPTS = int(os.environ.get('EXPLOITDB_MAX_ATTEMPTS', '5'))
+    EXPLOITDB_RETRY_BACKOFF_MINUTES = [
+        int(x) for x in os.environ.get(
+            'EXPLOITDB_RETRY_BACKOFF_MINUTES', '5,15,60,360',
+        ).split(',') if x.strip().isdigit()
+    ] or [5, 15, 60, 360]
+    # Job retry berjalan tiap menit dan hanya memproses entri yang
+    # next_retry_at-nya sudah lewat -- jadi jarak retry benar-benar +/- 5
+    # menit, bukan dibulatkan ke kelipatan 5 menit seperti cron */5.
+    # Default mengikuti EXPLOITDB_ENABLED: begitu enrichment diaktifkan,
+    # retry ikut aktif (tanpa retry, kegagalan sementara kehilangan konteks
+    # exploit). Bisa dimatikan eksplisit lewat EXPLOITDB_RETRY_ENABLED=False.
+    EXPLOITDB_RETRY_ENABLED = os.environ.get(
+        'EXPLOITDB_RETRY_ENABLED',
+        os.environ.get('EXPLOITDB_ENABLED', 'False'),
+    ).lower() == 'true'
+    EXPLOITDB_RETRY_CRON = os.environ.get('EXPLOITDB_RETRY_CRON', '* * * * *')
+    EXPLOITDB_RETRY_BATCH = int(os.environ.get('EXPLOITDB_RETRY_BATCH', '5'))
+
+    # Refresh sweep: cek ulang CVE yang sudah punya proposal pending, supaya
+    # exploit yang terbit BELAKANGAN tetap tertangkap. Tidak mengubah draft;
+    # hanya menandai needs_review.
+    EXPLOITDB_REFRESH_ENABLED = os.environ.get('EXPLOITDB_REFRESH_ENABLED', 'False').lower() == 'true'
+    EXPLOITDB_REFRESH_CRON = os.environ.get('EXPLOITDB_REFRESH_CRON', '0 3 * * *')
+    EXPLOITDB_REFRESH_BATCH = int(os.environ.get('EXPLOITDB_REFRESH_BATCH', '20'))
+    EXPLOITDB_REFRESH_TTL_HOURS = int(os.environ.get('EXPLOITDB_REFRESH_TTL_HOURS', '168'))
+
+    # Rate limiter global (lintas proses: web + scheduler). Semua request ke
+    # Exploit-DB -- search, /raw, retry, refresh -- wajib mengklaim slot ini
+    # dulu. Tanpa ini, retry per-CVE bisa berubah menjadi burst paralel dan
+    # memicu blokir Cloudflare.
+    EXPLOITDB_MAX_CONCURRENT = int(os.environ.get('EXPLOITDB_MAX_CONCURRENT', '2'))
+    EXPLOITDB_MIN_INTERVAL_SECONDS = float(os.environ.get('EXPLOITDB_MIN_INTERVAL_SECONDS', '2'))
+    # Slot yang tidak pernah dilepas (proses mati di tengah fetch) dianggap
+    # basi setelah waktu ini.
+    EXPLOITDB_SLOT_LEASE_SECONDS = int(os.environ.get('EXPLOITDB_SLOT_LEASE_SECONDS', '180'))
+    # Saat mengambil kode (/raw) setelah search, tunggu slot rate limiter
+    # sebentar (bukan menyerah) supaya excerpt benar-benar didapat. Ini
+    # jeda pendek yang disengaja, bukan retry 5 menit.
+    EXPLOITDB_CODE_WAIT_SECONDS = float(os.environ.get('EXPLOITDB_CODE_WAIT_SECONDS', '5'))
+
+    # Circuit breaker: N kegagalan berturut-turut dalam window -> jeda total.
+    EXPLOITDB_CIRCUIT_FAILURE_THRESHOLD = int(
+        os.environ.get('EXPLOITDB_CIRCUIT_FAILURE_THRESHOLD', '3'))
+    EXPLOITDB_CIRCUIT_WINDOW_SECONDS = int(
+        os.environ.get('EXPLOITDB_CIRCUIT_WINDOW_SECONDS', '60'))
+    EXPLOITDB_CIRCUIT_COOLDOWN_SECONDS = int(
+        os.environ.get('EXPLOITDB_CIRCUIT_COOLDOWN_SECONDS', '600'))
+
     # ── Scheduler election ────────────────────────────────────────────────
     # Di deployment multi-proses (gunicorn -w N, waitress dengan >1 worker),
     # SETIAP worker akan menjalankan create_app() dan -- tanpa guard --

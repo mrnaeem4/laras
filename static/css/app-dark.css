@@ -605,6 +605,24 @@ a:hover { color: var(--accent-ink); }
     word-break:break-word;
 }
 
+/* Exploit-DB code excerpt. Rendered as escaped text (never HTML) and
+   capped server-side; this only controls presentation. */
+.detail-code{
+    background:var(--surface-alt);
+    border:1px solid var(--border);
+    border-radius:var(--radius);
+    color:var(--code-text);
+    font-size:.78rem;
+    line-height:1.45;
+    margin:.5rem 0 0;
+    max-height:260px;
+    overflow:auto;
+    padding:.55rem .7rem;
+    white-space:pre-wrap;
+    overflow-wrap:anywhere;
+    word-break:break-word;
+}
+
 /* Disabled state for icon buttons (e.g. Generate AI while running).
    Without this the button keeps looking clickable mid-request. */
 .icon-btn:disabled,

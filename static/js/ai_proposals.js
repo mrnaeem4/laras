@@ -35,10 +35,56 @@ function statusChip(status) {
     return `<span class="chip" style="${style}">${esc(s)}</span>`;
 }
 
+function exploitChip(p) {
+    const e = p.exploitdb;
+    if (!e) return '<span class="text-muted">-</span>';
+    if (e.status === 'error' || e.status === 'retry_pending' || e.status === 'exhausted') {
+        return `<span class="sev-badge sev-medium" title="${esc(e.error || 'lookup failed')}">retry</span>`;
+    }
+    if (!e.found) return '<span class="text-muted">none</span>';
+    const n = (e.matches || []).length;
+    return `<span class="sev-badge sev-high">${n} EDB</span>`;
+}
+
+function renderExploitSection(p) {
+    const e = p.exploitdb;
+    if (!e) {
+        return '<div class="detail-note mt-3">Exploit-DB: not checked (feature disabled or no CVE).</div>';
+    }
+    const matches = Array.isArray(e.matches) ? e.matches : [];
+    const codeByEdb = {};
+    (e.code || []).forEach((c) => { if (c && c.edb_id) codeByEdb[c.edb_id] = c; });
+
+    const items = matches.map((m) => {
+        const c = codeByEdb[m.edb_id];
+        const code = c && c.code_excerpt
+            ? `<pre class="detail-code">${esc(c.code_excerpt)}</pre>`
+            : '';
+        return `<div class="detail-sample">
+            <div>
+                <a href="${esc(m.url)}" target="_blank" rel="noopener noreferrer">EDB-${esc(m.edb_id)}</a>
+                <span class="sev-badge ${m.verified ? 'sev-low' : 'sev-medium'}">${m.verified ? 'verified' : 'unverified'}</span>
+            </div>
+            <div class="small mt-1">${esc(m.title)}</div>
+            <div class="text-muted small">${esc(m.type)} / ${esc(m.platform)} / ${esc(m.date_published)}</div>
+            ${code}
+        </div>`;
+    }).join('');
+
+    const status = e.status || (e.found ? 'ok' : 'empty');
+    const note = e.new_since_proposal
+        ? '<div class="detail-note mt-2"><i class="fa-solid fa-triangle-exclamation me-1"></i>Exploit baru ditemukan setelah proposal dibuat. Draft TIDAK diubah otomatis — review ulang rule ini.</div>'
+        : '';
+    return `<div class="mb-1 mt-3"><strong>Exploit-DB</strong> <span class="chip">${esc(status)}</span></div>
+        ${e.error ? `<div class="text-muted small mb-2">${esc(e.error)}</div>` : ''}
+        ${items || '<div class="text-muted">No public exploit found.</div>'}
+        ${note}`;
+}
+
 async function loadAiProposals() {
     const tbody = document.getElementById('aiProposalsTableBody');
     const emptyEl = document.getElementById('aiProposalsEmpty');
-    tableSkeleton(tbody, 7);
+    tableSkeleton(tbody, 8);
     emptyEl.classList.add('d-none');
 
     const status = document.getElementById('apStatusFilter')?.value ?? 'pending';
@@ -88,6 +134,7 @@ function renderAiProposalsTable() {
             <td>${severityChip(p.advisory_severity)}</td>
             <td>${confidenceChip(p.confidence)}</td>
             <td class="cell-mono">${esc(ruleId) || '-'}</td>
+            <td>${exploitChip(p)}</td>
             <td>${statusChip(p.status)}</td>
             <td>
                 <div class="row-actions">
@@ -111,10 +158,24 @@ function _proposalById(id) {
     return aiProposalsCache.find((p) => p._id === id);
 }
 
-function openProposalModal(id) {
-    const p = _proposalById(id);
+async function openProposalModal(id) {
+    let p = _proposalById(id);
     if (!p) { showToast('Proposal not found, reload the page.', 'warning'); return; }
     currentProposalId = id;
+
+    // Listing mengirim tanpa excerpt kode (code_omitted). Ambil detail agar
+    // modal punya data lengkap; gagal = pakai data di cache.
+    try {
+        const res = await fetch(`/api/ai/proposals/${encodeURIComponent(id)}`);
+        const data = await res.json();
+        if (data && data.success && data.item) {
+            p = data.item;
+            const idx = aiProposalsCache.findIndex((x) => x._id === id);
+            if (idx !== -1) aiProposalsCache[idx] = p;
+        }
+    } catch (err) {
+        console.error('Load proposal detail error:', err);
+    }
 
     document.getElementById('aiProposalModalTitle').textContent =
         `AI Proposal: ${p.cve_id || ''} (${p.vendor || ''}${p.product ? ' / ' + p.product : ''})`;
@@ -168,6 +229,7 @@ function openProposalModal(id) {
         </table>
         <div class="mb-1"><strong>Proposed test samples</strong></div>
         ${samples}
+        ${renderExploitSection(p)}
         <div class="detail-note mt-3">
             <i class="fa-solid fa-triangle-exclamation me-1"></i>
             This is an AI draft. It has NOT been saved and is NOT deployed. Open it in the Rule Builder to review every field, adjust the pattern, then save through the normal flow (validate, test on Dev, promote).
@@ -175,6 +237,8 @@ function openProposalModal(id) {
     `;
 
     document.getElementById('aiProposalDismissBtn').disabled = p.status !== 'pending';
+    const recheckBtn = document.getElementById('aiProposalRecheckBtn');
+    if (recheckBtn) recheckBtn.disabled = p.status !== 'pending';
     document.getElementById('aiProposalOpenBtn').disabled = false;
 
     bootstrap.Modal.getOrCreateInstance(document.getElementById('aiProposalModal')).show();
@@ -213,6 +277,30 @@ async function dismissProposal(id) {
 
 function dismissCurrentProposal() {
     dismissProposal(currentProposalId);
+}
+
+async function recheckCurrentProposalExploits() {
+    if (!currentProposalId) return;
+    const btn = document.getElementById('aiProposalRecheckBtn');
+    if (btn) btn.disabled = true;
+    try {
+        const res = await fetch(
+            `/api/ai/proposals/${encodeURIComponent(currentProposalId)}/recheck-exploits`,
+            { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' },
+        );
+        const data = await res.json();
+        if (!data.success) {
+            showToast(data.error || 'Exploit-DB recheck failed.', 'danger');
+            return;
+        }
+        showToast('Exploit-DB rechecked.', 'success');
+        await loadAiProposals();
+        if (_proposalById(currentProposalId)) await openProposalModal(currentProposalId);
+    } catch (err) {
+        showToast('Request error: ' + err.message, 'danger');
+    } finally {
+        if (btn) btn.disabled = false;
+    }
 }
 
 let aiGenerating = false;

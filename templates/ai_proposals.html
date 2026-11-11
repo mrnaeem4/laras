@@ -36,7 +36,7 @@
                 <table class="data-table">
                     <thead>
                         <tr>
-                            <th>CVE</th><th>Vendor / Product</th><th>Severity</th><th>Confidence</th><th>Rule ID</th><th>Status</th><th></th>
+                            <th>CVE</th><th>Vendor / Product</th><th>Severity</th><th>Confidence</th><th>Rule ID</th><th>Exploit</th><th>Status</th><th></th>
                         </tr>
                     </thead>
                     <tbody id="aiProposalsTableBody"></tbody>
@@ -62,6 +62,9 @@
             <div class="modal-body" id="aiProposalModalBody"></div>
             <div class="modal-footer">
                 <button class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Close</button>
+                <button class="btn btn-outline-secondary btn-sm" id="aiProposalRecheckBtn" onclick="recheckCurrentProposalExploits()">
+                    <i class="fa-solid fa-bug me-1"></i>Recheck Exploit-DB
+                </button>
                 <button class="btn btn-outline-danger btn-sm" id="aiProposalDismissBtn" onclick="dismissCurrentProposal()">
                     <i class="fa-solid fa-ban me-1"></i>Dismiss
                 </button>

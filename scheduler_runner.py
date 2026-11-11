@@ -4,7 +4,7 @@ scheduler_runner.py — dedicated scheduler container entrypoint (Phase G).
 WHAT THIS IS
 ------------
 The cron-only process for the `scheduler` container in docker-compose.yml.
-It runs the SAME three jobs as the embedded scheduler in app.py, but
+It runs the SAME scheduled jobs as the embedded scheduler in app.py, but
 through a plain `apscheduler.schedulers.blocking.BlockingScheduler`
 instead of `flask_apscheduler`. No Flask app, no HTTP server, no
 blueprints, no login manager, no session backend.
@@ -15,7 +15,7 @@ That was the obvious approach and it is the one we deliberately rejected:
 
   1. It boots a whole Flask app (CSRF, Flask-Login, Flask-Session, every
      blueprint, and a MongoDB-backed session interface) purely to run
-     three cron jobs. Wasted memory and a wider failure surface.
+     cron jobs. Wasted memory and a wider failure surface.
   2. flask_apscheduler ties the scheduler to Flask's lifecycle, so we
      would be fighting the abstraction (the WERKZEUG_RUN_MAIN reloader
      guard, the double-start risk, an unused HTTP port).

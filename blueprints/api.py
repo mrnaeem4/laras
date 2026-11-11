@@ -38,8 +38,12 @@ Routes:
   POST /api/kev/sync                     → sync on-demand katalog KEV (Phase F)
   GET  /api/kev/status                   → status katalog + konfigurasi job
   GET  /api/ai/proposals                 → daftar usulan draft rule AI (Phase F)
+  GET  /api/ai/proposals/<id>            → detail satu usulan (termasuk kode exploit)
   POST /api/ai/proposals/generate        → jalankan pipeline AI on-demand
   POST /api/ai/proposals/<id>/dismiss    → tandai usulan AI sebagai dismissed
+  GET  /api/exploitdb/lookup?cve=        → lookup manual satu CVE ke Exploit-DB
+  GET  /api/exploitdb/status             → status cache/retry/circuit Exploit-DB
+  POST /api/ai/proposals/<id>/recheck-exploits → cek ulang exploit satu proposal
 """
 
 from __future__ import annotations
@@ -59,7 +63,7 @@ from database import (
 )
 from config import Config
 from services.wazuh_api import WazuhAPI
-from services import promotion_utils, backup_utils, tech_stack_utils, kev_utils, ai_utils
+from services import promotion_utils, backup_utils, tech_stack_utils, kev_utils, ai_utils, exploitdb_utils
 from services.notification import notify
 
 api_bp = Blueprint('api', __name__)
@@ -438,7 +442,7 @@ def kev_status():
 
 # ── AI proposals (Phase F, Opsi C) ─────────────────────────────────────
 
-def _serialize_proposal(doc: dict) -> dict:
+def _serialize_proposal(doc: dict, *, include_code: bool = True) -> dict:
     doc = dict(doc)
     if doc.get('_id') is not None:
         doc['_id'] = str(doc['_id'])
@@ -446,6 +450,21 @@ def _serialize_proposal(doc: dict) -> dict:
     created = doc.get('created_at')
     if created is not None and hasattr(created, 'isoformat'):
         doc['created_at'] = created.isoformat()
+    # Exploit-DB metadata menyimpan datetime (checked_at). Serialisasi
+    # eksplisit supaya jsonify tidak gagal.
+    exploitdb = doc.get('exploitdb')
+    if isinstance(exploitdb, dict):
+        exploitdb = dict(exploitdb)
+        checked = exploitdb.get('checked_at')
+        if checked is not None and hasattr(checked, 'isoformat'):
+            exploitdb['checked_at'] = checked.isoformat()
+        if not include_code:
+            # Excerpt kode bisa 2 x 3000 karakter per proposal. Jangan
+            # dikirim di listing (bisa 200 item); endpoint detail yang
+            # menyajikannya saat modal dibuka.
+            exploitdb['code'] = []
+            exploitdb['code_omitted'] = True
+        doc['exploitdb'] = exploitdb
     return doc
 
 
@@ -458,7 +477,27 @@ def list_ai_proposals():
     status = (request.args.get('status') or '').strip()
     query = {'status': status} if status else {}
     docs = col.find(query).sort('created_at', -1).limit(200)
-    return jsonify({'success': True, 'items': [_serialize_proposal(d) for d in docs]})
+    return jsonify({'success': True, 'items': [
+        _serialize_proposal(d, include_code=False) for d in docs
+    ]})
+
+
+@api_bp.route('/ai/proposals/<proposal_id>', methods=['GET'])
+def get_ai_proposal(proposal_id: str):
+    """Detail satu usulan (termasuk excerpt kode Exploit-DB, yang tidak
+    dikirim di listing agar respons tetap ringan)."""
+    col = get_ai_proposals_collection()
+    if col is None:
+        return jsonify({'success': False, 'error': 'MongoDB tidak tersedia.'}), 503
+    try:
+        oid = ObjectId(proposal_id)
+    except (InvalidId, TypeError):
+        return jsonify({'success': False, 'error': 'ID tidak valid.'}), 400
+
+    doc = col.find_one({'_id': oid})
+    if not doc:
+        return jsonify({'success': False, 'error': 'Usulan tidak ditemukan.'}), 404
+    return jsonify({'success': True, 'item': _serialize_proposal(doc, include_code=True)})
 
 
 @api_bp.route('/ai/proposals/generate', methods=['POST'])
@@ -509,6 +548,66 @@ def dismiss_ai_proposal(proposal_id: str):
     if result.matched_count == 0:
         return jsonify({'success': False, 'error': 'Usulan tidak ditemukan.'}), 404
     return jsonify({'success': True})
+
+
+# ── Exploit-DB enrichment (Phase F) ────────────────────────────────────
+
+@api_bp.route('/exploitdb/lookup', methods=['GET'])
+def exploitdb_lookup():
+    """
+    Lookup manual satu CVE ke Exploit-DB.
+
+    Endpoint manual tetap berjalan walau EXPLOITDB_ENABLED=False (pola sama
+    dengan KEV): flag itu hanya mengatur enrichment otomatis di pipeline AI
+    dan job terjadwal. `?refresh=1` melewati cache.
+    """
+    cve = (request.args.get('cve') or '').strip()
+    if not cve:
+        return jsonify({'success': False, 'error': 'Parameter cve wajib diisi.'}), 400
+
+    refresh = (request.args.get('refresh') or '').lower() in ('1', 'true', 'yes')
+    result = exploitdb_utils.lookup_cve(get_db(), cve, force=refresh)
+
+    if result.get('success'):
+        return jsonify(result), 200
+    if result.get('deferred'):
+        return jsonify(result), 429
+    if not result.get('retryable'):
+        return jsonify(result), 400
+    return jsonify(result), 502
+
+
+@api_bp.route('/exploitdb/status', methods=['GET'])
+def exploitdb_status():
+    """Status konfigurasi, cache, antrean retry, dan circuit breaker."""
+    return jsonify({'success': True, **exploitdb_utils.status_snapshot(get_db())})
+
+
+@api_bp.route('/ai/proposals/<proposal_id>/recheck-exploits', methods=['POST'])
+def recheck_proposal_exploits(proposal_id: str):
+    """
+    Cek ulang Exploit-DB untuk satu proposal (manual). Hanya memperbarui
+    metadata `exploitdb` + flag `needs_review`; `rule_draft` TIDAK diubah.
+    """
+    col = get_ai_proposals_collection()
+    if col is None:
+        return jsonify({'success': False, 'error': 'MongoDB tidak tersedia.'}), 503
+    try:
+        oid = ObjectId(proposal_id)
+    except (InvalidId, TypeError):
+        return jsonify({'success': False, 'error': 'ID tidak valid.'}), 400
+
+    proposal = col.find_one({'_id': oid})
+    if not proposal:
+        return jsonify({'success': False, 'error': 'Usulan tidak ditemukan.'}), 404
+
+    result = exploitdb_utils.lookup_cve(get_db(), proposal.get('cve_id'), force=True)
+    if not result.get('success'):
+        status = 429 if result.get('deferred') else 502
+        return jsonify(result), status
+
+    fields = exploitdb_utils.mark_proposal(get_db(), proposal, result, notify_new=True)
+    return jsonify({'success': True, 'exploitdb': fields, 'lookup': result})
 
 
 # ── Wazuh Sync & Manager ────────────────────────────────────────────────

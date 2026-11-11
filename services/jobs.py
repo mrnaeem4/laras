@@ -1,6 +1,6 @@
 """
 services/jobs.py
-Shared definitions of the three scheduled jobs (Phase E / Phase F).
+Shared definitions of the scheduled jobs (Phase E / Phase F).
 
 WHY THIS MODULE EXISTS
 ----------------------
@@ -118,6 +118,78 @@ def run_ai_proposals() -> None:
         )
 
 
+def run_exploitdb_retry() -> None:
+    """
+    Job terjadwal: proses antrean retry Exploit-DB yang sudah jatuh tempo.
+
+    Antrean PERSISTEN di `exploitdb_cache` (status retry_pending +
+    next_retry_at), bukan sleep/date-job APScheduler -- job ad-hoc di
+    BlockingScheduler hilang saat container restart. Cron berjalan tiap
+    menit dan hanya mengambil entri yang next_retry_at-nya lewat, sehingga
+    retry pertama benar-benar +/- 5 menit.
+
+    Notifikasi hanya dikirim saat ada yang PULIH atau MENYERAH. Kegagalan
+    pertama sudah dinotifikasi oleh pipeline AI; mengirim notifikasi tiap
+    percobaan akan membanjiri Telegram saat Cloudflare memblokir.
+    """
+    from services import exploitdb_utils
+
+    db = get_db()
+    if db is None:
+        return
+
+    result = exploitdb_utils.process_retry_queue(db, limit=Config.EXPLOITDB_RETRY_BATCH)
+    if not result.get('success') or not result.get('processed'):
+        return
+
+    recovered = result.get('recovered', 0)
+    exhausted = result.get('exhausted', 0)
+    if recovered:
+        notify(
+            'Retry Exploit-DB berhasil',
+            f'{recovered} CVE berhasil dicek ulang.',
+            level='success',
+        )
+    if exhausted:
+        notify(
+            'Retry Exploit-DB menyerah',
+            f'{exhausted} CVE tetap gagal setelah '
+            f'{Config.EXPLOITDB_MAX_ATTEMPTS} percobaan.',
+            level='error',
+        )
+
+
+def run_exploitdb_refresh() -> None:
+    """
+    Job terjadwal: cek ulang CVE yang sudah punya proposal pending untuk
+    menangkap exploit yang terbit BELAKANGAN. Hanya menandai
+    `needs_review`; draft rule TIDAK diubah.
+    """
+    if not Config.EXPLOITDB_ENABLED:
+        return
+
+    from services import exploitdb_utils
+
+    db = get_db()
+    if db is None:
+        return
+
+    result = exploitdb_utils.refresh_pending_proposals(
+        db, limit=Config.EXPLOITDB_REFRESH_BATCH, notify_new=False,
+    )
+    if not result.get('success'):
+        return
+
+    new_exploits = result.get('new_exploits', 0)
+    if new_exploits:
+        notify(
+            'Exploit baru ditemukan',
+            f'{new_exploits} proposal kini punya exploit publik di Exploit-DB '
+            f'dan ditandai needs_review (draft TIDAK diubah).',
+            level='warning',
+        )
+
+
 # Registry consumed by BOTH app.py (embedded mode) and scheduler_runner.py
 # (dedicated container). Each entry:
 #   (job_id, job_function, Config attribute holding the 5-field cron,
@@ -129,6 +201,8 @@ JOB_REGISTRY = (
     ('scheduled_backup', run_scheduled_backup, 'BACKUP_CRON', 'BACKUP_ENABLED', 'Backup otomatis'),
     ('kev_catalog_sync', run_kev_sync, 'KEV_SYNC_CRON', 'KEV_SYNC_ENABLED', 'Sync katalog KEV'),
     ('ai_rule_proposals', run_ai_proposals, 'AI_PROPOSAL_CRON', 'AI_PROPOSAL_ENABLED', 'Usulan rule AI'),
+    ('exploitdb_retry', run_exploitdb_retry, 'EXPLOITDB_RETRY_CRON', 'EXPLOITDB_RETRY_ENABLED', 'Retry Exploit-DB'),
+    ('exploitdb_refresh', run_exploitdb_refresh, 'EXPLOITDB_REFRESH_CRON', 'EXPLOITDB_REFRESH_ENABLED', 'Refresh Exploit-DB'),
 )
 
 

@@ -95,7 +95,7 @@ services:
     environment:
       # WEB MUST NOT RUN THE SCHEDULER. The dedicated `scheduler` service
       # below owns the cron jobs; enabling it here too would double every
-      # backup / KEV sync / AI proposal. `environment` wins over
+      # backup / KEV sync / AI proposal / Exploit-DB. `environment` wins over
       # `env_file`, so this override is authoritative even if the shared
       # .env still has SCHEDULER_ENABLED=True from a dev setup.
       SCHEDULER_ENABLED: "false"
