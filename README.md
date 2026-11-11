@@ -335,6 +335,11 @@ Dua template tersedia:
 
 Perbedaan penting: pada container, `localhost` di `MONGO_URI`/`S3_ENDPOINT_URL`/`WAZUH_*_API_URL` menunjuk container itu sendiri. Lihat [4.1.4](#414-langkah-deploy).
 
+> Tabel di bawah hanya memuat variabel yang **perlu diatur**. Nilai internal
+> (endpoint layanan pihak ketiga seperti feed KEV / Exploit-DB, user agent,
+> timeout, batas rate limiter, TTL cache, dsb.) punya default yang benar di
+> `config.py` dan sengaja tidak dicantumkan di sini maupun di template.
+
 ### 5.1 Variabel Flask & Session
 
 | Variabel | Default | Keterangan |
@@ -396,21 +401,28 @@ Perbedaan penting: pada container, `localhost` di `MONGO_URI`/`S3_ENDPOINT_URL`/
 | Variabel | Default | Keterangan |
 |----------|---------|------------|
 | `KEV_SYNC_ENABLED` | `False` | Aktifkan job sync katalog vendor/product. |
-| `KEV_ADVISORIES_URL` | `https://csirt.tangerangkota.go.id/api/advisories` | Sumber feed advisory. |
-| `KEV_HTTP_TIMEOUT` | `90` | Timeout HTTP feed (detik). |
 | `KEV_SYNC_CRON` | `15 */6 * * *` | Jadwal sync katalog (cron 5-field). |
-| `KEV_VERIFY_CERT` | `True` | Verifikasi TLS feed KEV. |
 | `LLM_PROVIDER_URL` | `https://kiyararouter.web.id/v1` | Base URL provider OpenAI-compatible (tanpa `/chat/completions`). |
 | `LLM_MODEL` | `z-ai/glm-5.3` | Nama model. |
 | `LLM_API_KEY` | *(kosong)* | API key provider. |
-| `LLM_HTTP_TIMEOUT` | `180` | Timeout panggilan LLM (detik). |
-| `LLM_MAX_TOKENS` | `4096` | Batas token respons. |
-| `LLM_TEMPERATURE` | `0.2` | Suhu sampling. |
 | `AI_PROPOSAL_ENABLED` | `False` | Aktifkan job usulan rule AI. |
 | `AI_PROPOSAL_CRON` | `30 */6 * * *` | Jadwal pipeline AI (cron 5-field). |
-| `AI_PROPOSAL_MAX_PER_RUN` | `10` | Batas usulan baru per run. |
+| `AI_PROPOSAL_MAX_PER_RUN` | `10` | Batas usulan baru per run (kendali biaya token). |
 
-### 5.7 Scheduler
+### 5.7 Exploit-DB
+
+| Variabel | Default | Keterangan |
+|----------|---------|------------|
+| `EXPLOITDB_ENABLED` | `False` | Aktifkan enrichment exploit di pipeline AI. Endpoint manual tetap jalan. |
+| `EXPLOITDB_MAX_RESULTS` | `5` | Maksimum match disimpan per CVE. |
+| `EXPLOITDB_MAX_CODE_FETCH` | `2` | Jumlah exploit teratas yang kodenya diambil (`0` = metadata saja). |
+| `EXPLOITDB_RETRY_ENABLED` | mengikuti `EXPLOITDB_ENABLED` | Job retry antrean (no-op saat kosong). |
+| `EXPLOITDB_RETRY_CRON` | `* * * * *` | Polling antrean per menit. |
+| `EXPLOITDB_REFRESH_ENABLED` | `False` | Refresh sweep proposal pending (exploit baru). |
+| `EXPLOITDB_REFRESH_CRON` | `0 3 * * *` | Jadwal refresh sweep. |
+
+
+### 5.8 Scheduler
 
 | Variabel | Default | Keterangan |
 |----------|---------|------------|
@@ -580,8 +592,12 @@ Semua endpoint di bawah **wajib login**. Kirim header `Content-Type: application
 | `GET` | `/api/kev/catalog/products` | Product dari katalog KEV (dropdown). |
 | `POST` | `/api/kev/sync` | Sync katalog KEV on-demand. |
 | `GET` | `/api/ai/proposals` | List usulan draft rule AI. |
+| `GET` | `/api/ai/proposals/<id>` | Detail satu usulan (termasuk excerpt kode Exploit-DB). |
 | `POST` | `/api/ai/proposals/generate` | Jalankan pipeline AI on-demand. |
 | `POST` | `/api/ai/proposals/<id>/dismiss` | Tandai usulan sebagai dismissed. |
+| `GET` | `/api/exploitdb/lookup?cve=` | Lookup manual satu CVE ke Exploit-DB (`?refresh=1` melewati cache). |
+| `GET` | `/api/exploitdb/status` | Status cache, antrean retry, dan circuit breaker. |
+| `POST` | `/api/ai/proposals/<id>/recheck-exploits` | Cek ulang exploit satu proposal (draft tidak diubah). |
 
 ### Backup
 
@@ -625,10 +641,12 @@ Semua endpoint di bawah **wajib login**. Kirim header `Content-Type: application
 
 - **Backup** mengekspor koleksi terpilih ke JSON gzip dan mengunggahnya ke S3/MinIO (via `boto3`). Tersedia on-demand (`POST /api/backup`) dan terjadwal (`BACKUP_CRON`). Backup menulis ke S3/MinIO, **bukan** ke disk container (container `app` read-only).
 - **Restore** bersifat destruktif: koleksi terpilih di-drop lalu di-insert ulang dari isi backup, dengan konfirmasi ganda di UI. Restore menolak jalan bila `BACKUP_ENABLED=false`.
-- **Scheduler** (APScheduler) menjalankan tiga job independen, masing-masing punya flag sendiri:
+- **Scheduler** (APScheduler) menjalankan lima job independen, masing-masing punya flag sendiri:
   1. Backup otomatis — `BACKUP_ENABLED`
   2. Sync katalog KEV — `KEV_SYNC_ENABLED`
   3. Usulan rule AI — `AI_PROPOSAL_ENABLED`
+  4. Retry antrean Exploit-DB — `EXPLOITDB_RETRY_ENABLED`
+  5. Refresh sweep Exploit-DB — `EXPLOITDB_REFRESH_ENABLED`
   Scheduler hanya start jika minimal satu job aktif.
 - **Notifikasi** memakai Telegram (abstraction `BaseNotifier`); jika token kosong, notifikasi menjadi no-op. Event yang dinotifikasi antara lain: promotion diajukan/disetujui/ditolak, push ke Dev gagal, dan restart Dev/Prod.
 
@@ -671,6 +689,17 @@ Backup yang belum pernah diuji restore belum bisa disebut backup.
   5. Simpan sebagai usulan `pending` di koleksi `ai_proposals`.
 
 **Jaminan keamanan:** AI **tidak pernah** menulis langsung ke `rules`/`decoders`, tidak push ke Wazuh, dan tidak melewati gate. Semua usulan menunggu keputusan manusia di halaman `/ai-proposals` (bisa di-prefill ke Rule Builder, tapi tidak auto-save). Teks feed diperlakukan sebagai data (anti prompt-injection).
+
+### 11.1 Exploit-DB enrichment
+
+Sebelum LLM dipanggil, CVE dicek ke **Exploit-DB**. Tujuannya menyelaraskan rule dengan cara exploit benar-benar bekerja (path, parameter, header, status), bukan hanya dari deskripsi CVE.
+
+- **Pencarian** memakai endpoint DataTables `GET /search?cve=<tanpa prefix CVE->&columns[...]...`. Parameter `columns[...]` wajib lengkap; tanpa itu server membalas HTTP 500. Kode diambil dari `GET /raw/<id>` (`text/plain`), **bukan** `/download/<id>`.
+- **Kode exploit = teks inert.** Modul tidak pernah mengeksekusi, tidak memakai `eval`/`exec`/`subprocess`, dan tidak menulis file. Kode hanya di-decode, dibuang karakter kontrolnya, dipotong sampai batas excerpt yang aman, lalu dikirim ke prompt di dalam blok yang ditandai *untrusted + never execute*. UI merendernya sebagai teks ter-escape.
+- **Soft-fail.** Kegagalan lookup tidak pernah menggagalkan usulan. Hasil disimpan di `exploitdb_cache` dengan status `retry_pending` + `next_retry_at`; job `exploitdb_retry` (tiap menit) memproses antrean itu — retry pertama **5 menit**, lalu 15m → 60m → 6h, maksimum `EXPLOITDB_MAX_ATTEMPTS`.
+- **Anti-banjir.** Semua request (search, `/raw`, retry, refresh) lewat rate limiter global di `exploitdb_state`: jumlah request bersamaan dibatasi, jarak antar-request dijaga, dan circuit breaker terbuka setelah beberapa kegagalan berturut-turut. Jika slot tidak tersedia, lookup **ditunda** ke antrean, bukan dipaksa.
+- **Exploit baru setelah proposal dibuat.** `exploitdb_refresh` (opsional) menandai proposal `needs_review` + `new_since_proposal`. **Draft rule tidak diubah otomatis** — reviewer memutuskan.
+- Endpoint: `GET /api/exploitdb/lookup?cve=`, `GET /api/exploitdb/status`, `POST /api/ai/proposals/<id>/recheck-exploits`.
 
 Kontrak bentuk XML Wazuh sebagai satu sumber kebenaran ada di `services/wazuh_contract.py`, dipakai bersama oleh prompt LLM, normalizer, dan XML generator.
 
@@ -722,6 +751,7 @@ laras/
 │   ├── notification.py     # Notifikasi Telegram
 │   ├── tech_stack_utils.py # Inventaris tech stack
 │   ├── kev_utils.py        # Fetch & sync feed KEV
+│   ├── exploitdb_utils.py  # Enrichment Exploit-DB (cache, retry, rate limiter)
 │   ├── jobs.py             # Definisi job terjadwal (dipakai app.py & scheduler_runner.py)
 │   └── ai_utils.py         # Pipeline usulan rule AI
 │
@@ -734,7 +764,7 @@ laras/
 
 ### Koleksi MongoDB
 
-`rules`, `decoders`, `rule_history`, `decoder_history`, `users`, `manager_actions`, `promotion_requests`, `tech_stack`, `kev_catalog`, `ai_proposals`, `sessions`, `session_index`.
+`rules`, `decoders`, `rule_history`, `decoder_history`, `users`, `manager_actions`, `promotion_requests`, `tech_stack`, `kev_catalog`, `ai_proposals`, `exploitdb_cache`, `exploitdb_state`, `sessions`, `session_index`.
 
 Koleksi audit (`rule_history`, `decoder_history`, `manager_actions`) dibungkus **append-only** — update/delete melempar `RuntimeError`. `promotion_requests` dan `ai_proposals` dibungkus **no-delete** — status boleh berubah, dokumen tidak boleh dihapus.
 
